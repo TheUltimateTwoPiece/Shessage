@@ -205,7 +205,9 @@ function ConversationRow({
   const title = conversation.is_group
     ? conversation.name ?? "Group"
     : others[0]?.display_name ?? "Unknown";
-  const avatarUrl = conversation.is_group ? null : others[0]?.avatar_url ?? null;
+  const avatarUrl =
+    conversation.avatar_url ??
+    (conversation.is_group ? null : (others[0]?.avatar_url ?? null));
   const online = !conversation.is_group && others[0] ? isOnline(others[0].id) : false;
   const preview = lastMessage
     ? lastMessage.deleted_at

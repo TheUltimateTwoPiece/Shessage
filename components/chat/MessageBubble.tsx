@@ -27,6 +27,7 @@ export function MessageBubble({
   editedAt,
   deletedAt,
   pinnedAt,
+  canAdminDelete = false,
   onReply,
   onCopy,
   onPin,
@@ -43,6 +44,7 @@ export function MessageBubble({
   editedAt?: string | null;
   deletedAt?: string | null;
   pinnedAt?: string | null;
+  canAdminDelete?: boolean;
   onReply?: () => void;
   onCopy?: () => void;
   onPin?: () => void;
@@ -65,6 +67,7 @@ export function MessageBubble({
             pinned={Boolean(pinnedAt)}
             deleted={deleted}
             isOwn={isOwn}
+            canDelete={canAdminDelete}
             onReply={onReply}
             onCopy={onCopy ?? (() => {})}
             onPin={onPin ?? (() => {})}

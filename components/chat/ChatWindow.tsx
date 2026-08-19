@@ -7,6 +7,7 @@ import { Avatar } from "../Avatar";
 import { MessageList } from "./MessageList";
 import { MessageInput } from "./MessageInput";
 import { ScreenShareBar } from "./ScreenShareBar";
+import { GroupInfoModal } from "./GroupInfoModal";
 import type {
   Attachment,
   ConversationWithParticipants,
@@ -30,6 +31,7 @@ export function ChatWindow({
     useMessages(conversation.id);
   const [sendError, setSendError] = useState<string | null>(null);
   const [replyTo, setReplyTo] = useState<ReplyTo | null>(null);
+  const [showGroupInfo, setShowGroupInfo] = useState(false);
 
   const participants = useMemo(
     () =>
@@ -46,9 +48,16 @@ export function ChatWindow({
   const title = conversation.is_group
     ? conversation.name ?? "Group"
     : others[0]?.display_name ?? "Unknown";
-  const avatarUrl = conversation.is_group ? null : others[0]?.avatar_url ?? null;
+  const avatarUrl = conversation.is_group
+    ? conversation.avatar_url
+    : (others[0]?.avatar_url ?? null);
   const otherOnline =
     !conversation.is_group && others[0] ? isOnline(others[0].id) : false;
+  const myRole =
+    conversation.conversation_participants.find(
+      (p) => p.user_id === currentUser.id
+    )?.role ?? "member";
+  const isGroupAdmin = conversation.is_group && myRole !== "member";
 
   function handleReply(msg: Message) {
     const senderName =
@@ -84,7 +93,15 @@ export function ChatWindow({
   async function handleDelete(msg: Message) {
     if (!window.confirm("Delete this message for everyone?")) return;
     const supabase = createClient();
-    await runRpc(() => supabase.rpc("delete_message", { p_message_id: msg.id }));
+    if (msg.sender_id === currentUser.id) {
+      await runRpc(() =>
+        supabase.rpc("delete_message", { p_message_id: msg.id })
+      );
+    } else if (isGroupAdmin) {
+      await runRpc(() =>
+        supabase.rpc("delete_any_message", { p_message_id: msg.id })
+      );
+    }
   }
 
   async function handleEditSave(id: string, content: string) {
@@ -132,17 +149,24 @@ export function ChatWindow({
             <path d="M15 18l-6-6 6-6" />
           </svg>
         </button>
-        <Avatar name={title} url={avatarUrl} size="sm" showOnlineDot online={otherOnline} />
-        <div className="min-w-0 flex-1">
-          <div className="truncate font-semibold text-gray-900">{title}</div>
-          <div className="truncate text-xs text-gray-500">
-            {conversation.is_group
-              ? `${participants.length} members`
-              : otherOnline
-                ? "online"
-                : "offline"}
+        <button
+          onClick={conversation.is_group ? () => setShowGroupInfo(true) : undefined}
+          className={`flex min-w-0 flex-1 items-center gap-3 text-left ${
+            conversation.is_group ? "cursor-pointer" : "cursor-default"
+          }`}
+        >
+          <Avatar name={title} url={avatarUrl} size="sm" showOnlineDot online={otherOnline} />
+          <div className="min-w-0 flex-1">
+            <div className="truncate font-semibold text-gray-900">{title}</div>
+            <div className="truncate text-xs text-gray-500">
+              {conversation.is_group
+                ? `${participants.length} members${isGroupAdmin ? " · tap for info" : ""}`
+                : otherOnline
+                  ? "online"
+                  : "offline"}
+            </div>
           </div>
-        </div>
+        </button>
       </header>
 
       <ScreenShareBar
@@ -195,6 +219,7 @@ export function ChatWindow({
         onPin={handlePin}
         onDelete={handleDelete}
         onEditSave={handleEditSave}
+        canAdminDelete={isGroupAdmin}
       />
 
       <MessageInput
@@ -204,6 +229,14 @@ export function ChatWindow({
         onClearReply={() => setReplyTo(null)}
         onSend={sendMessage}
       />
+
+      {showGroupInfo && (
+        <GroupInfoModal
+          conversation={conversation}
+          currentUser={currentUser}
+          onClose={() => setShowGroupInfo(false)}
+        />
+      )}
     </div>
   );
 }

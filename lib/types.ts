@@ -11,14 +11,19 @@ export type Conversation = {
   id: string;
   is_group: boolean;
   name: string | null;
+  avatar_url: string | null;
+  bio: string | null;
   created_at: string;
   last_message_at: string;
 };
+
+export type GroupRole = "owner" | "admin" | "member";
 
 export type ParticipantRow = {
   conversation_id: string;
   user_id: string;
   joined_at: string;
+  role: GroupRole;
   profiles: Profile | null;
 };
 

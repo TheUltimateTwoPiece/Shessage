@@ -105,6 +105,22 @@ export function useConversations(userId: string | undefined) {
             );
           });
         }
+      )
+      // Group info (name/bio/avatar) and membership role changes — reload so
+      // promotions, removals and edits show up live.
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "conversations" },
+        () => {
+          load();
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "conversation_participants" },
+        () => {
+          load();
+        }
       );
     channel.subscribe();
     return () => {

@@ -61,6 +61,30 @@ export async function uploadAvatar(file: File, userId: string): Promise<string> 
   return data.publicUrl;
 }
 
+/**
+ * Uploads a group profile picture to the `group-avatars` bucket under
+ * `{conversation_id}/{uuid}-{ext}` and returns its public URL. Storage RLS
+ * only allows owners/admins of that group to upload.
+ */
+export async function uploadGroupAvatar(
+  file: File,
+  conversationId: string
+): Promise<string> {
+  const supabase = createClient();
+  const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
+  const path = `${conversationId}/${crypto.randomUUID()}.${ext}`;
+
+  const { error } = await supabase.storage.from("group-avatars").upload(path, file, {
+    cacheControl: "3600",
+    contentType: file.type || "image/jpeg",
+    upsert: false,
+  });
+  if (error) throw new Error(`Upload failed: ${error.message}`);
+
+  const { data } = supabase.storage.from("group-avatars").getPublicUrl(path);
+  return data.publicUrl;
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;

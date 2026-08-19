@@ -6,6 +6,7 @@ export function MessageActions({
   pinned,
   deleted,
   isOwn,
+  canDelete = false,
   onReply,
   onCopy,
   onPin,
@@ -15,6 +16,7 @@ export function MessageActions({
   pinned: boolean;
   deleted: boolean;
   isOwn: boolean;
+  canDelete?: boolean;
   onReply: () => void;
   onCopy: () => void;
   onPin: () => void;
@@ -59,9 +61,9 @@ export function MessageActions({
           <MenuItem onClick={close(onCopy)}>Copy</MenuItem>
           <MenuItem onClick={close(onPin)}>{pinned ? "Unpin" : "Pin"}</MenuItem>
           {isOwn && !deleted && <MenuItem onClick={close(onEdit)}>Edit</MenuItem>}
-          {isOwn && !deleted && (
+          {(isOwn || canDelete) && !deleted && (
             <MenuItem danger onClick={close(onDelete)}>
-              Delete
+              {canDelete && !isOwn ? "Delete for everyone" : "Delete"}
             </MenuItem>
           )}
         </div>

@@ -28,17 +28,49 @@ create table if not exists public.conversations (
   id uuid primary key default gen_random_uuid(),
   is_group boolean not null default false,
   name text, -- group name (null for 1:1)
+  avatar_url text, -- group profile picture
+  bio text, -- group bio
   created_at timestamptz not null default now(),
   last_message_at timestamptz not null default now()
 );
 
+-- (Upgrade path for projects where the tables already exist.)
+alter table public.conversations
+  add column if not exists avatar_url text;
+alter table public.conversations
+  add column if not exists bio text;
+
+-- Group hierarchy: owner (creator) > admin > member. Promotions/demotions
+-- and removals go through the security-definer RPCs below; direct inserts
+-- may only ever create `member` rows (enforced by the RLS insert policy).
 create table if not exists public.conversation_participants (
   conversation_id uuid not null references public.conversations (id) on delete cascade,
   user_id uuid not null constraint conversation_participants_user_id_profiles_fkey
     references public.profiles (id) on delete cascade,
   joined_at timestamptz not null default now(),
+  role text not null default 'member',
   primary key (conversation_id, user_id)
 );
+
+alter table public.conversation_participants
+  add column if not exists role text not null default 'member';
+alter table public.conversation_participants
+  drop constraint if exists conversation_participants_role_check,
+  add constraint conversation_participants_role_check
+    check (role in ('owner', 'admin', 'member'));
+
+-- Existing groups: make the first-joined participant the owner so pre-existing
+-- groups aren't stuck without any admin. Stable across re-runs.
+update public.conversation_participants cp
+set role = 'owner'
+from public.conversations c
+where c.id = cp.conversation_id
+  and c.is_group = true
+  and cp.joined_at = (
+    select min(cp2.joined_at)
+    from public.conversation_participants cp2
+    where cp2.conversation_id = cp.conversation_id
+  );
 
 create table if not exists public.messages (
   id uuid primary key default gen_random_uuid(),
@@ -199,6 +231,22 @@ as $$
   );
 $$;
 
+-- Is the current user an owner or admin of the given conversation?
+create or replace function public.is_group_admin(conversation_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.conversation_participants cp
+    where cp.conversation_id = $1
+      and cp.user_id = auth.uid()
+      and cp.role in ('owner', 'admin')
+  );
+$$;
+
 -- Profiles: readable by signed-in users (needed for search + participant
 -- display), only the owner can update their own row.
 create policy "Profiles are viewable by everyone"
@@ -222,7 +270,8 @@ create policy "Anyone signed in can create a conversation"
 
 create policy "Update conversations you participate in"
   on public.conversations for update to authenticated
-  using (public.is_participant(id));
+  using (not is_group or public.is_group_admin(id))
+  with check (not is_group or public.is_group_admin(id));
 
 -- Participants: read rows of conversations you're in; insert your own
 -- membership, or add members once you're already a participant.
@@ -236,8 +285,8 @@ create policy "Read participants of conversations you're in"
 create policy "Insert participants for yourself or conversations you're in"
   on public.conversation_participants for insert to authenticated
   with check (
-    user_id = auth.uid()
-    or public.is_participant(conversation_id)
+    (user_id = auth.uid() or public.is_participant(conversation_id))
+    and coalesce(role, 'member') = 'member'
   );
 
 -- Messages
@@ -368,6 +417,167 @@ grant execute on function public.edit_message(uuid, text) to authenticated;
 grant execute on function public.delete_message(uuid) to authenticated;
 grant execute on function public.pin_message(uuid, boolean) to authenticated;
 
+-- Group management. All security-definer; the RLS insert policy only ever
+-- permits `member` rows directly, so ownership/admin flow through here.
+create or replace function public.create_group(p_name text, p_member_ids uuid[])
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_me uuid := auth.uid();
+  v_conv_id uuid;
+begin
+  if v_me is null then
+    raise exception 'Not authenticated';
+  end if;
+  if p_member_ids is null or array_length(p_member_ids, 1) < 2 then
+    raise exception 'A group needs at least 3 members (you + 2 others)';
+  end if;
+  insert into public.conversations (is_group, name)
+  values (true, coalesce(nullif(trim(p_name), ''), 'Group'))
+  returning id into v_conv_id;
+
+  insert into public.conversation_participants (conversation_id, user_id, role)
+  values (v_conv_id, v_me, 'owner');
+
+  insert into public.conversation_participants (conversation_id, user_id, role)
+  select v_conv_id, u.user_id, 'member'
+  from unnest(p_member_ids) as u(user_id)
+  where u.user_id is distinct from v_me
+  on conflict do nothing;
+
+  return v_conv_id;
+end;
+$$;
+
+create or replace function public.set_member_role(p_conversation_id uuid, p_user_id uuid, p_role text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_caller_role text;
+  v_target_role text;
+begin
+  if p_role not in ('admin', 'member') then
+    raise exception 'Invalid role';
+  end if;
+  select role into v_caller_role from public.conversation_participants
+  where conversation_id = p_conversation_id and user_id = auth.uid();
+  if v_caller_role is null then
+    raise exception 'You are not a participant of this conversation';
+  end if;
+  if v_caller_role not in ('owner', 'admin') then
+    raise exception 'Only admins can change member roles';
+  end if;
+  select role into v_target_role from public.conversation_participants
+  where conversation_id = p_conversation_id and user_id = p_user_id;
+  if v_target_role is null then
+    raise exception 'That user is not a member of this conversation';
+  end if;
+  if v_target_role = 'owner' then
+    raise exception 'The owner cannot be demoted';
+  end if;
+  if v_caller_role = 'admin' and v_target_role = 'admin' then
+    raise exception 'Admins cannot change other admins';
+  end if;
+  update public.conversation_participants
+  set role = p_role
+  where conversation_id = p_conversation_id and user_id = p_user_id;
+end;
+$$;
+
+create or replace function public.remove_member(p_conversation_id uuid, p_user_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_caller_role text;
+  v_target_role text;
+begin
+  -- Anyone may leave a group they're in.
+  if p_user_id = auth.uid() then
+    delete from public.conversation_participants
+    where conversation_id = p_conversation_id and user_id = auth.uid();
+    return;
+  end if;
+  select role into v_caller_role from public.conversation_participants
+  where conversation_id = p_conversation_id and user_id = auth.uid();
+  if v_caller_role is null then
+    raise exception 'You are not a participant of this conversation';
+  end if;
+  if v_caller_role not in ('owner', 'admin') then
+    raise exception 'Only admins can remove members';
+  end if;
+  select role into v_target_role from public.conversation_participants
+  where conversation_id = p_conversation_id and user_id = p_user_id;
+  if v_target_role is null then
+    raise exception 'That user is not a member of this conversation';
+  end if;
+  if v_target_role = 'owner' then
+    raise exception 'The owner cannot be removed';
+  end if;
+  if v_caller_role = 'admin' and v_target_role = 'admin' then
+    raise exception 'Admins cannot remove other admins';
+  end if;
+  delete from public.conversation_participants
+  where conversation_id = p_conversation_id and user_id = p_user_id;
+end;
+$$;
+
+-- Admins can delete any message in a group they administer.
+create or replace function public.delete_any_message(p_message_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_conv_id uuid;
+begin
+  select conversation_id into v_conv_id from public.messages where id = p_message_id;
+  if v_conv_id is null then
+    raise exception 'Message not found';
+  end if;
+  if not public.is_group_admin(v_conv_id) then
+    raise exception 'Only group admins can delete other messages';
+  end if;
+  update public.messages
+  set content = '', deleted_at = now()
+  where id = p_message_id;
+end;
+$$;
+
+-- Group name / bio / avatar updates (admins only).
+create or replace function public.update_group_info(p_conversation_id uuid, p_name text, p_bio text, p_avatar_url text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_group_admin(p_conversation_id) then
+    raise exception 'Only admins can update group info';
+  end if;
+  update public.conversations
+  set name = coalesce(nullif(trim(p_name), ''), name),
+      bio = nullif(trim(p_bio), ''),
+      avatar_url = p_avatar_url
+  where id = p_conversation_id;
+end;
+$$;
+
+grant execute on function public.create_group(text, uuid[]) to authenticated;
+grant execute on function public.set_member_role(uuid, uuid, text) to authenticated;
+grant execute on function public.remove_member(uuid, uuid) to authenticated;
+grant execute on function public.delete_any_message(uuid) to authenticated;
+grant execute on function public.update_group_info(uuid, text, text, text) to authenticated;
+
 -- ───────────────────────────────────────────────────────────────────────────────
 -- Storage (message attachments)
 -- ───────────────────────────────────────────────────────────────────────────────
@@ -424,6 +634,30 @@ create policy "Delete your own avatar"
   using (
     bucket_id = 'avatars'
     and auth.uid() = (storage.foldername(name))[1]::uuid
+  );
+
+-- Group avatars: public bucket; only owners/admins of a group can write into
+-- its folder: {conversation_id}/{uuid}-{filename}
+insert into storage.buckets (id, name, public)
+values ('group-avatars', 'group-avatars', true)
+on conflict (id) do nothing;
+
+create policy "Anyone can view group avatars"
+  on storage.objects for select
+  using (bucket_id = 'group-avatars');
+
+create policy "Group admins can upload avatars"
+  on storage.objects for insert to authenticated
+  with check (
+    bucket_id = 'group-avatars'
+    and public.is_group_admin((storage.foldername(name))[1]::uuid)
+  );
+
+create policy "Group admins can delete avatars"
+  on storage.objects for delete to authenticated
+  using (
+    bucket_id = 'group-avatars'
+    and public.is_group_admin((storage.foldername(name))[1]::uuid)
   );
 
 -- ───────────────────────────────────────────────────────────────────────────────

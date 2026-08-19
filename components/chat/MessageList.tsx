@@ -18,6 +18,7 @@ export function MessageList({
   onPin,
   onDelete,
   onEditSave,
+  canAdminDelete = false,
 }: {
   messages: Message[];
   loading: boolean;
@@ -32,6 +33,7 @@ export function MessageList({
   onPin?: (msg: Message, pinned: boolean) => void;
   onDelete?: (msg: Message) => void;
   onEditSave?: (id: string, content: string) => void;
+  canAdminDelete?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -146,6 +148,7 @@ export function MessageList({
                 : undefined
             }
             onDelete={onDelete ? () => onDelete(msg) : undefined}
+            canAdminDelete={canAdminDelete && msg.sender_id !== currentUserId}
           />
         );
       })}
