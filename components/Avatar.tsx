@@ -31,7 +31,7 @@ export function Avatar({
         />
       ) : (
         <div
-          className={`${sizeClass} flex items-center justify-center rounded-full bg-emerald-500 font-semibold text-white`}
+          className={`${sizeClass} flex items-center justify-center rounded-full bg-blue-500 font-semibold text-white`}
         >
           {initials(name)}
         </div>

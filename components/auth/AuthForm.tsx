@@ -53,7 +53,7 @@ export function AuthForm() {
   return (
     <div className="w-full max-w-sm rounded-2xl bg-white p-8 shadow-lg">
       <div className="mb-6 text-center">
-        <h1 className="text-2xl font-bold text-emerald-600">Shessage</h1>
+        <h1 className="text-2xl font-bold text-blue-600">Shessage</h1>
         <p className="mt-1 text-sm text-gray-500">
           Real-time chat with screen sharing
         </p>
@@ -86,7 +86,7 @@ export function AuthForm() {
             placeholder="Display name"
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-emerald-500"
+            className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
           />
         )}
         <input
@@ -95,7 +95,7 @@ export function AuthForm() {
           placeholder="Email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-emerald-500"
+          className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
         />
         <input
           type="password"
@@ -104,7 +104,7 @@ export function AuthForm() {
           placeholder="Password (min 6 characters)"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-emerald-500"
+          className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
         />
 
         {error && (
@@ -113,7 +113,7 @@ export function AuthForm() {
           </div>
         )}
         {info && (
-          <div className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+          <div className="rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-700">
             {info}
           </div>
         )}
@@ -121,7 +121,7 @@ export function AuthForm() {
         <button
           type="submit"
           disabled={loading}
-          className="mt-1 rounded-lg bg-emerald-500 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-600 disabled:opacity-50"
+          className="mt-1 rounded-lg bg-blue-500 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-600 disabled:opacity-50"
         >
           {loading
             ? "Please wait…"

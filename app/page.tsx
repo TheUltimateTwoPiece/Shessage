@@ -19,7 +19,7 @@ function SetupNotice() {
   return (
     <div className="flex h-dvh items-center justify-center bg-gray-50 p-6">
       <div className="max-w-md rounded-2xl bg-white p-8 text-center shadow-lg">
-        <h1 className="text-xl font-bold text-emerald-600">Shessage</h1>
+        <h1 className="text-xl font-bold text-blue-600">Shessage</h1>
         <p className="mt-3 text-sm text-gray-600">
           Supabase isn’t configured yet. Copy{" "}
           <code className="rounded bg-gray-100 px-1.5 py-0.5">.env.local.example</code>{" "}

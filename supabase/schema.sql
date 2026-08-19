@@ -29,7 +29,8 @@ create table if not exists public.conversations (
 
 create table if not exists public.conversation_participants (
   conversation_id uuid not null references public.conversations (id) on delete cascade,
-  user_id uuid not null references auth.users (id) on delete cascade,
+  user_id uuid not null constraint conversation_participants_user_id_profiles_fkey
+    references public.profiles (id) on delete cascade,
   joined_at timestamptz not null default now(),
   primary key (conversation_id, user_id)
 );
@@ -37,7 +38,8 @@ create table if not exists public.conversation_participants (
 create table if not exists public.messages (
   id uuid primary key default gen_random_uuid(),
   conversation_id uuid not null references public.conversations (id) on delete cascade,
-  sender_id uuid not null references auth.users (id),
+  sender_id uuid not null constraint messages_sender_id_profiles_fkey
+    references public.profiles (id),
   content text not null,
   created_at timestamptz not null default now()
 );
@@ -57,6 +59,26 @@ create table if not exists public.screen_shares (
 
 create index if not exists screen_shares_conversation_idx
   on public.screen_shares (conversation_id);
+
+-- PostgREST needs a foreign-key relationship to embed `profiles` for sender
+-- names/avatars (e.g. `messages(profiles(*))` and
+-- `conversation_participants(profiles(*))`). Profiles is 1:1 with auth.users,
+-- so the FKs below point at `profiles`. Idempotent: skipped if already present,
+-- which also upgrades projects that were created before this relationship
+-- existed (their older `auth.users` FK can stay).
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'conversation_participants_user_id_profiles_fkey') then
+    alter table public.conversation_participants
+      add constraint conversation_participants_user_id_profiles_fkey
+      foreign key (user_id) references public.profiles (id) on delete cascade;
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'messages_sender_id_profiles_fkey') then
+    alter table public.messages
+      add constraint messages_sender_id_profiles_fkey
+      foreign key (sender_id) references public.profiles (id);
+  end if;
+end $$;
 
 -- ───────────────────────────────────────────────────────────────────────────────
 -- Triggers
@@ -217,6 +239,37 @@ create policy "Insert screen shares you start in conversations you're in"
 create policy "Update screen shares in conversations you're in"
   on public.screen_shares for update to authenticated
   using (public.is_participant(conversation_id));
+
+-- ───────────────────────────────────────────────────────────────────────────────
+-- Helpers
+-- ───────────────────────────────────────────────────────────────────────────────
+
+-- Latest message per conversation for the current user (used by the sidebar
+-- previews). Lets the client avoid fetching every message in every
+-- conversation just to render a one-line preview.
+create or replace function public.get_last_message()
+returns table (
+  conversation_id uuid,
+  id uuid,
+  sender_id uuid,
+  content text,
+  created_at timestamptz
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select distinct on (m.conversation_id)
+    m.conversation_id, m.id, m.sender_id, m.content, m.created_at
+  from public.messages m
+  join public.conversation_participants cp
+    on cp.conversation_id = m.conversation_id
+   and cp.user_id = auth.uid()
+  order by m.conversation_id, m.created_at desc
+$$;
+
+grant execute on function public.get_last_message() to authenticated;
 
 -- ───────────────────────────────────────────────────────────────────────────────
 -- Realtime

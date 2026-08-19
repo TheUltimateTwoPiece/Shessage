@@ -31,14 +31,14 @@ export function MessageInput({
         }}
         rows={1}
         placeholder="Type a message"
-        className="max-h-32 flex-1 resize-none rounded-3xl border border-gray-300 bg-white px-4 py-2.5 text-[15px] outline-none focus:border-emerald-500"
+        className="max-h-32 flex-1 resize-none rounded-3xl border border-gray-300 bg-white px-4 py-2.5 text-[15px] outline-none focus:border-blue-500"
       />
       <button
         type="button"
         onClick={submit}
         disabled={disabled || !text.trim()}
         aria-label="Send message"
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white transition-colors hover:bg-emerald-600 disabled:opacity-40"
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-500 text-white transition-colors hover:bg-blue-600 disabled:opacity-40"
       >
         <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
           <path d="M3.4 20.4 22 12 3.4 3.6 3.39 10.2 15.3 12 3.39 13.8z" />

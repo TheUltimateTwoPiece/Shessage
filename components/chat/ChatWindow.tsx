@@ -53,7 +53,7 @@ export function ChatWindow({
         sender_id: currentUser.id,
         content: text,
       })
-      .select("*, profiles(*)")
+      .select("*, sender:profiles(*)")
       .single();
     if (error || !data) {
       setSendError(error?.message ?? "Could not send the message.");

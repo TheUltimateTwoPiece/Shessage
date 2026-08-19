@@ -40,22 +40,20 @@ export function useConversations(userId: string | undefined) {
       return;
     }
 
-    const [convRes, msgRes] = await Promise.all([
+    const [convRes, lastMsgRes] = await Promise.all([
       supabase
         .from("conversations")
         .select("*, conversation_participants(profiles(*))")
         .in("id", ids),
-      supabase
-        .from("messages")
-        .select("id, conversation_id, sender_id, content, created_at")
-        .in("conversation_id", ids)
-        .order("created_at", { ascending: false }),
+      // Only the latest message per conversation — fetching the full history
+      // for every conversation is the #1 performance killer here.
+      supabase.rpc("get_last_message"),
     ]);
 
     const conversations = (convRes.data ?? []) as ConversationWithParticipants[];
     const lastByConv = new Map<string, Message>();
-    for (const m of msgRes.data ?? []) {
-      if (!lastByConv.has(m.conversation_id)) lastByConv.set(m.conversation_id, m);
+    for (const m of lastMsgRes.data ?? []) {
+      lastByConv.set(m.conversation_id, m as Message);
     }
 
     setItems(

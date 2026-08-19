@@ -34,7 +34,7 @@ export function ConversationList({
     <div className="flex h-full w-full flex-col">
       <header className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
         <div className="flex items-center gap-2">
-          <span className="text-xl font-extrabold tracking-tight text-emerald-600">
+          <span className="text-xl font-extrabold tracking-tight text-blue-600">
             Shessage
           </span>
         </div>
@@ -100,7 +100,7 @@ export function ConversationList({
             <p className="text-sm text-gray-600">No conversations yet.</p>
             <button
               onClick={() => setShowNewChat(true)}
-              className="mt-1 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-600"
+              className="mt-1 rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white hover:bg-blue-600"
             >
               Start a conversation
             </button>

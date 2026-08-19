@@ -32,12 +32,12 @@ export function MessageBubble({
       <div
         className={`max-w-[78%] rounded-2xl px-3 py-1.5 shadow-sm ${
           isOwn
-            ? "rounded-br-md bg-[#d9fdd3]"
+            ? "rounded-br-md bg-[#d9ecfd]"
             : "rounded-bl-md border border-gray-100 bg-white"
         }`}
       >
         {showSenderName && sender && (
-          <div className="mb-0.5 text-xs font-semibold text-emerald-600">
+          <div className="mb-0.5 text-xs font-semibold text-blue-600">
             {sender.display_name}
           </div>
         )}

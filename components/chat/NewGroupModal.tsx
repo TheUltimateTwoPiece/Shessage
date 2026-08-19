@@ -59,14 +59,14 @@ export function NewGroupModal({
         value={name}
         onChange={(e) => setName(e.target.value)}
         placeholder="Group name"
-        className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-emerald-500"
+        className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
       />
       <input
         type="text"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Add members (search by name or email)…"
-        className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-emerald-500"
+        className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
       />
 
       {selected.size > 0 && (
@@ -74,13 +74,13 @@ export function NewGroupModal({
           {Array.from(selected.values()).map((user) => (
             <span
               key={user.id}
-              className="flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-800"
+              className="flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-800"
             >
               {user.display_name}
               <button
                 onClick={() => toggle(user)}
                 aria-label={`Remove ${user.display_name}`}
-                className="ml-0.5 font-bold text-emerald-600 hover:text-emerald-800"
+                className="ml-0.5 font-bold text-blue-600 hover:text-blue-800"
               >
                 ×
               </button>
@@ -121,7 +121,7 @@ export function NewGroupModal({
                 <span
                   className={`flex h-5 w-5 items-center justify-center rounded-full border ${
                     isSelected
-                      ? "border-emerald-500 bg-emerald-500 text-white"
+                      ? "border-blue-500 bg-blue-500 text-white"
                       : "border-gray-300 text-transparent"
                   }`}
                 >
@@ -136,7 +136,7 @@ export function NewGroupModal({
       <button
         onClick={create}
         disabled={busy}
-        className="mt-4 w-full rounded-lg bg-emerald-500 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-600 disabled:opacity-50"
+        className="mt-4 w-full rounded-lg bg-blue-500 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-600 disabled:opacity-50"
       >
         {busy ? "Creating…" : `Create group (${selected.size + 1} members)`}
       </button>

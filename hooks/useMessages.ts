@@ -25,12 +25,21 @@ export function useMessages(conversationId: string | null) {
     const supabase = createClient();
     const { data, error } = await supabase
       .from("messages")
-      .select("*, profiles(*)")
+      .select("*, sender:profiles(*)")
       .eq("conversation_id", conversationId)
       .order("created_at", { ascending: false })
       .range(count, count + PAGE_SIZE - 1);
     if (!error && data) {
-      setMessages((prev) => [...(data as Message[]).slice().reverse(), ...prev]);
+      setMessages((prev) => {
+        // Realtime messages may have arrived since the last fetch, shifting the
+        // offset — drop any ids we already have to avoid duplicates.
+        const existing = new Set(prev.map((m) => m.id));
+        const fresh = (data as Message[])
+          .slice()
+          .reverse()
+          .filter((m) => !existing.has(m.id));
+        return [...fresh, ...prev];
+      });
       setCount((c) => c + data.length);
       setHasMore(data.length === PAGE_SIZE);
     }
@@ -44,7 +53,7 @@ export function useMessages(conversationId: string | null) {
     const supabase = createClient();
     supabase
       .from("messages")
-      .select("*, profiles(*)")
+      .select("*, sender:profiles(*)")
       .eq("conversation_id", conversationId)
       .order("created_at", { ascending: false })
       .range(0, PAGE_SIZE - 1)

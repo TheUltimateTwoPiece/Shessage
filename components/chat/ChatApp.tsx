@@ -7,7 +7,7 @@ import { useConversations } from "@/hooks/useConversations";
 import { usePresence } from "@/hooks/usePresence";
 import { ConversationList } from "./ConversationList";
 import { ChatWindow } from "./ChatWindow";
-import type { Profile } from "@/lib/types";
+import type { ConversationWithParticipants, Profile } from "@/lib/types";
 
 export function ChatApp() {
   const router = useRouter();
@@ -46,10 +46,39 @@ export function ChatApp() {
   const { items, loading, refresh } = useConversations(user?.id);
   const { isOnline } = usePresence(user?.id);
 
-  const activeConversation = useMemo(
-    () => items.find((i) => i.conversation.id === activeId)?.conversation ?? null,
-    [items, activeId]
-  );
+  // If the active conversation isn't in the list yet (just created, or the
+  // list refresh is still in flight), fetch it directly so the window opens
+  // instead of hanging on "Opening conversation…".
+  const [directConv, setDirectConv] = useState<{
+    id: string;
+    conv: ConversationWithParticipants;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!activeId) return;
+    if (items.some((i) => i.conversation.id === activeId)) return;
+    let cancelled = false;
+    const supabase = createClient();
+    supabase
+      .from("conversations")
+      .select("*, conversation_participants(profiles(*))")
+      .eq("id", activeId)
+      .single()
+      .then(({ data }) => {
+        if (!cancelled && data) {
+          setDirectConv({ id: activeId, conv: data as ConversationWithParticipants });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeId, items]);
+
+  const activeConversation = useMemo(() => {
+    const fromList = items.find((i) => i.conversation.id === activeId)?.conversation;
+    if (fromList) return fromList;
+    return directConv && directConv.id === activeId ? directConv.conv : null;
+  }, [items, activeId, directConv]);
   const pendingActive = activeId !== null && !activeConversation;
 
   async function handleLogout() {

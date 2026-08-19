@@ -43,22 +43,17 @@ function ScreenShareVideo() {
   );
 }
 
-/** Publishes the local screen capture once the LiveKit room is connected. */
-function SharerTracks() {
+/** Publishes the pre-captured local screen tracks once the room is connected. */
+function SharerTracks({ tracks }: { tracks: LocalTrack[] }) {
   const room = useRoomContext();
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    let tracks: LocalTrack[] = [];
+    if (tracks.length === 0) return;
     let cancelled = false;
 
-    const start = async () => {
+    const publish = async () => {
       try {
-        tracks = await createLocalScreenTracks();
-        if (cancelled) {
-          tracks.forEach((t) => t.stop());
-          return;
-        }
         await Promise.all(
           tracks.map((t) => room.localParticipant.publishTrack(t))
         );
@@ -67,24 +62,23 @@ function SharerTracks() {
           setError(
             err instanceof Error
               ? err.message
-              : "Could not start screen capture. Check your browser permissions."
+              : "Could not publish your screen share."
           );
         }
       }
     };
 
     if (room.state === ConnectionState.Connected) {
-      start();
+      publish();
     } else {
-      room.once(RoomEvent.Connected, start);
+      room.once(RoomEvent.Connected, publish);
     }
 
     return () => {
       cancelled = true;
-      room.off(RoomEvent.Connected, start);
-      tracks.forEach((t) => t.stop());
+      room.off(RoomEvent.Connected, publish);
     };
-  }, [room]);
+  }, [room, tracks]);
 
   return (
     <>
@@ -112,9 +106,11 @@ export function ScreenShareBar({
   const [error, setError] = useState<string | null>(null);
   const [conn, setConn] = useState<{ token: string; url: string } | null>(null);
   const [sharerId, setSharerId] = useState<string | null>(null);
+  const [localTracks, setLocalTracks] = useState<LocalTrack[]>([]);
 
   const roleRef = useRef<Role>("idle");
   const conversationIdRef = useRef(conversationId);
+  const localTracksRef = useRef<LocalTrack[]>([]);
 
   useEffect(() => {
     roleRef.current = role;
@@ -127,6 +123,9 @@ export function ScreenShareBar({
   const getRole = () => roleRef.current;
 
   const cleanup = useCallback(() => {
+    localTracksRef.current.forEach((t) => t.stop());
+    localTracksRef.current = [];
+    setLocalTracks([]);
     setRole("idle");
     setConn(null);
     setSharerId(null);
@@ -212,12 +211,20 @@ export function ScreenShareBar({
     if (!cid) return;
     setError(null);
     setConnStatus("connecting");
+    let tracks: LocalTrack[] = [];
     try {
+      // Capture BEFORE any network round-trip or room connect: Safari only
+      // allows getDisplayMedia within the user gesture, and it doesn't
+      // support system-audio capture — so request video only.
+      tracks = await createLocalScreenTracks({ audio: false });
       const { token, livekitUrl } = await startScreenShare(cid);
+      localTracksRef.current = tracks;
+      setLocalTracks(tracks);
       setConn({ token, url: livekitUrl });
       setRole("sharing");
       setConnStatus("live");
     } catch (err) {
+      tracks.forEach((t) => t.stop());
       setConnStatus("error");
       setError(
         err instanceof Error ? err.message : "Could not start screen sharing."
@@ -312,17 +319,20 @@ export function ScreenShareBar({
               audio={false}
               onDisconnected={handleDisconnected}
               onError={(err) => {
+                cleanup();
                 setConnStatus("error");
                 setError(
                   err?.message || "The LiveKit connection failed. Please try again."
                 );
-                setRole("idle");
-                setConn(null);
               }}
               className="relative aspect-video w-full overflow-hidden rounded-lg bg-black"
             >
               <RoomAudioRenderer />
-              {role === "sharing" ? <SharerTracks /> : <ScreenShareVideo />}
+              {role === "sharing" ? (
+                <SharerTracks tracks={localTracks} />
+              ) : (
+                <ScreenShareVideo />
+              )}
             </LiveKitRoom>
           )}
         </div>
