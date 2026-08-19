@@ -8,6 +8,7 @@ export const PAGE_SIZE = 30;
 
 export function useMessages(conversationId: string | null) {
   const [messages, setMessages] = useState<Message[]>([]);
+  const [pinned, setPinned] = useState<Message | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
@@ -17,6 +18,23 @@ export function useMessages(conversationId: string | null) {
     setMessages((prev) =>
       prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]
     );
+  }, []);
+
+  const applyUpdate = useCallback((updated: Message) => {
+    setMessages((prev) =>
+      prev.some((m) => m.id === updated.id)
+        ? prev.map((m) => (m.id === updated.id ? updated : m))
+        : prev
+    );
+    setPinned((prev) => {
+      if (updated.deleted_at) return prev?.id === updated.id ? null : prev;
+      if (updated.pinned_at) {
+        return prev?.pinned_at && prev.pinned_at >= updated.pinned_at
+          ? prev
+          : updated;
+      }
+      return prev?.id === updated.id ? null : prev;
+    });
   }, []);
 
   const loadMore = useCallback(async () => {
@@ -51,23 +69,33 @@ export function useMessages(conversationId: string | null) {
   useEffect(() => {
     if (!conversationId) return;
     const supabase = createClient();
-    supabase
+    const msgs = supabase
       .from("messages")
       .select("*, sender:profiles(*)")
       .eq("conversation_id", conversationId)
       .order("created_at", { ascending: false })
-      .range(0, PAGE_SIZE - 1)
-      .then(({ data, error }) => {
-        if (!error && data) {
-          setMessages((data as Message[]).slice().reverse());
-          setCount(data.length);
-          setHasMore(data.length === PAGE_SIZE);
-        }
-        setLoading(false);
-      });
+      .range(0, PAGE_SIZE - 1);
+    const pinnedQ = supabase
+      .from("messages")
+      .select("*, sender:profiles(*)")
+      .eq("conversation_id", conversationId)
+      .not("pinned_at", "is", null)
+      .order("pinned_at", { ascending: false })
+      .limit(1);
+    Promise.all([msgs, pinnedQ]).then(([mRes, pRes]) => {
+      if (!mRes.error && mRes.data) {
+        setMessages((mRes.data as Message[]).slice().reverse());
+        setCount(mRes.data.length);
+        setHasMore(mRes.data.length === PAGE_SIZE);
+      }
+      if (!pRes.error && pRes.data?.[0]) {
+        setPinned(pRes.data[0] as Message);
+      }
+      setLoading(false);
+    });
   }, [conversationId]);
 
-  // Realtime: append new messages as they arrive.
+  // Realtime: append new messages, and apply edit/delete/pin updates live.
   useEffect(() => {
     if (!conversationId) return;
     const supabase = createClient();
@@ -84,12 +112,24 @@ export function useMessages(conversationId: string | null) {
         (payload) => {
           appendMessage(payload.new as Message);
         }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "messages",
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        (payload) => {
+          applyUpdate(payload.new as Message);
+        }
       );
     channel.subscribe();
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [conversationId, appendMessage]);
+  }, [conversationId, appendMessage, applyUpdate]);
 
-  return { messages, loading, loadingMore, hasMore, loadMore, appendMessage };
+  return { messages, pinned, loading, loadingMore, hasMore, loadMore, appendMessage };
 }

@@ -48,6 +48,9 @@ export type Message = {
   created_at: string;
   attachments: Attachment[];
   reply_to?: ReplyTo | null;
+  edited_at?: string | null;
+  deleted_at?: string | null;
+  pinned_at?: string | null;
   sender?: Profile | null;
 };
 

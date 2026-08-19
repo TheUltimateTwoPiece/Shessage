@@ -26,7 +26,7 @@ export function ChatWindow({
   isOnline: (id: string) => boolean;
   onBack: () => void;
 }) {
-  const { messages, loading, loadingMore, hasMore, loadMore, appendMessage } =
+  const { messages, pinned, loading, loadingMore, hasMore, loadMore, appendMessage } =
     useMessages(conversation.id);
   const [sendError, setSendError] = useState<string | null>(null);
   const [replyTo, setReplyTo] = useState<ReplyTo | null>(null);
@@ -61,6 +61,37 @@ export function ChatWindow({
       content: msg.content,
       attachment_name: msg.attachments?.[0]?.name ?? null,
     });
+  }
+
+  function handleCopy(msg: Message) {
+    navigator.clipboard?.writeText(msg.content).catch(() => {});
+  }
+
+  async function runRpc(
+    fn: () => PromiseLike<{ error: { message: string } | null }>
+  ) {
+    const { error } = await fn();
+    if (error) setSendError(error.message);
+  }
+
+  async function handlePin(msg: Message, pinnedValue: boolean) {
+    const supabase = createClient();
+    await runRpc(() =>
+      supabase.rpc("pin_message", { p_message_id: msg.id, p_pinned: pinnedValue })
+    );
+  }
+
+  async function handleDelete(msg: Message) {
+    if (!window.confirm("Delete this message for everyone?")) return;
+    const supabase = createClient();
+    await runRpc(() => supabase.rpc("delete_message", { p_message_id: msg.id }));
+  }
+
+  async function handleEditSave(id: string, content: string) {
+    const supabase = createClient();
+    await runRpc(() =>
+      supabase.rpc("edit_message", { p_message_id: id, p_content: content })
+    );
   }
 
   async function sendMessage(
@@ -126,6 +157,30 @@ export function ChatWindow({
         </div>
       )}
 
+      {pinned && !pinned.deleted_at && (
+        <div className="flex items-center gap-2 border-b border-gray-200 bg-blue-50 px-3 py-2 text-sm">
+          <span aria-hidden>📌</span>
+          <div className="min-w-0 flex-1 truncate">
+            <span className="font-semibold text-blue-700">
+              {profilesById.get(pinned.sender_id)?.display_name ?? "Unknown"}
+              {": "}
+            </span>
+            <span className="text-gray-600">
+              {pinned.content ||
+                (pinned.attachments?.[0]
+                  ? `📎 ${pinned.attachments[0].name}`
+                  : "Message")}
+            </span>
+          </div>
+          <button
+            onClick={() => handlePin(pinned, false)}
+            className="shrink-0 rounded-lg px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+          >
+            Unpin
+          </button>
+        </div>
+      )}
+
       <MessageList
         messages={messages}
         loading={loading}
@@ -136,6 +191,10 @@ export function ChatWindow({
         profilesById={profilesById}
         isGroup={conversation.is_group}
         onReply={handleReply}
+        onCopy={handleCopy}
+        onPin={handlePin}
+        onDelete={handleDelete}
+        onEditSave={handleEditSave}
       />
 
       <MessageInput

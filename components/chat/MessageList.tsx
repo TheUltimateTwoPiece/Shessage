@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MessageBubble } from "./MessageBubble";
 import type { Message, Profile } from "@/lib/types";
 
@@ -14,6 +14,10 @@ export function MessageList({
   profilesById,
   isGroup,
   onReply,
+  onCopy,
+  onPin,
+  onDelete,
+  onEditSave,
 }: {
   messages: Message[];
   loading: boolean;
@@ -24,9 +28,15 @@ export function MessageList({
   profilesById: Map<string, Profile>;
   isGroup: boolean;
   onReply?: (msg: Message) => void;
+  onCopy?: (msg: Message) => void;
+  onPin?: (msg: Message, pinned: boolean) => void;
+  onDelete?: (msg: Message) => void;
+  onEditSave?: (id: string, content: string) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
 
   function handleScroll() {
     const el = containerRef.current;
@@ -97,6 +107,19 @@ export function MessageList({
         </div>
       )}
       {messages.map((msg) => {
+        if (editingId === msg.id) {
+          return (
+            <EditMessageBox
+              key={msg.id}
+              initial={editText}
+              onSave={(text) => {
+                onEditSave?.(msg.id, text);
+                setEditingId(null);
+              }}
+              onCancel={() => setEditingId(null)}
+            />
+          );
+        }
         const sender = msg.sender ?? profilesById.get(msg.sender_id);
         return (
           <MessageBubble
@@ -108,10 +131,66 @@ export function MessageList({
             sender={sender}
             attachments={msg.attachments ?? []}
             replyTo={msg.reply_to}
+            editedAt={msg.edited_at}
+            deletedAt={msg.deleted_at}
+            pinnedAt={msg.pinned_at}
             onReply={onReply ? () => onReply(msg) : undefined}
+            onCopy={onCopy ? () => onCopy(msg) : undefined}
+            onPin={onPin ? () => onPin(msg, !msg.pinned_at) : undefined}
+            onEdit={
+              onEditSave
+                ? () => {
+                    setEditText(msg.content);
+                    setEditingId(msg.id);
+                  }
+                : undefined
+            }
+            onDelete={onDelete ? () => onDelete(msg) : undefined}
           />
         );
       })}
+    </div>
+  );
+}
+
+function EditMessageBox({
+  initial,
+  onSave,
+  onCancel,
+}: {
+  initial: string;
+  onSave: (text: string) => void;
+  onCancel: () => void;
+}) {
+  const [text, setText] = useState(initial);
+
+  return (
+    <div className="flex justify-end px-3 py-0.5">
+      <div className="w-full max-w-[78%] rounded-2xl rounded-br-md border border-blue-300 bg-white p-2 shadow-sm">
+        <textarea
+          autoFocus
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          rows={2}
+          placeholder="Edit message"
+          className="w-full resize-none rounded-lg border border-gray-300 px-3 py-2 text-[15px] outline-none focus:border-blue-500"
+        />
+        <div className="mt-2 flex justify-end gap-2">
+          <button
+            onClick={onCancel}
+            className="rounded-lg px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-100"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => text.trim() && onSave(text.trim())}
+            disabled={!text.trim()}
+            className="rounded-lg bg-blue-500 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-600 disabled:opacity-40"
+          >
+            Save
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

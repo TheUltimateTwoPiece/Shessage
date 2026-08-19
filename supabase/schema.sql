@@ -55,6 +55,18 @@ alter table public.messages
 alter table public.messages
   add column if not exists reply_to jsonb;
 
+-- Message lifecycle flags (WhatsApp-style actions):
+--   edited_at  — set when the sender edits the text
+--   deleted_at — soft delete ("deleted for everyone"); content is blanked
+--   pinned_at  — set when a participant pins the message
+-- Mutations go through the security-definer RPCs below, never direct updates.
+alter table public.messages
+  add column if not exists edited_at timestamptz;
+alter table public.messages
+  add column if not exists deleted_at timestamptz;
+alter table public.messages
+  add column if not exists pinned_at timestamptz;
+
 create index if not exists messages_conversation_created_idx
   on public.messages (conversation_id, created_at desc);
 
@@ -266,6 +278,7 @@ returns table (
   sender_id uuid,
   content text,
   attachments jsonb,
+  deleted_at timestamptz,
   created_at timestamptz
 )
 language sql
@@ -274,7 +287,7 @@ security definer
 set search_path = public
 as $$
   select distinct on (m.conversation_id)
-    m.conversation_id, m.id, m.sender_id, m.content, m.attachments, m.created_at
+    m.conversation_id, m.id, m.sender_id, m.content, m.attachments, m.deleted_at, m.created_at
   from public.messages m
   join public.conversation_participants cp
     on cp.conversation_id = m.conversation_id
@@ -283,6 +296,72 @@ as $$
 $$;
 
 grant execute on function public.get_last_message() to authenticated;
+
+-- Message actions: edit/delete are restricted to the sender; pin is open to
+-- any participant. All run as the table owner (security definer) so direct
+-- UPDATEs stay locked down by RLS.
+create or replace function public.edit_message(p_message_id uuid, p_content text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not exists (
+    select 1 from public.messages
+    where id = p_message_id and sender_id = auth.uid() and deleted_at is null
+  ) then
+    raise exception 'You can only edit your own messages';
+  end if;
+  update public.messages
+  set content = p_content, edited_at = now()
+  where id = p_message_id;
+end;
+$$;
+
+create or replace function public.delete_message(p_message_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not exists (
+    select 1 from public.messages
+    where id = p_message_id and sender_id = auth.uid() and deleted_at is null
+  ) then
+    raise exception 'You can only delete your own messages';
+  end if;
+  update public.messages
+  set content = '', deleted_at = now()
+  where id = p_message_id;
+end;
+$$;
+
+create or replace function public.pin_message(p_message_id uuid, p_pinned boolean)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not exists (
+    select 1 from public.messages m
+    join public.conversation_participants cp
+      on cp.conversation_id = m.conversation_id and cp.user_id = auth.uid()
+    where m.id = p_message_id
+  ) then
+    raise exception 'You are not a participant of this conversation';
+  end if;
+  update public.messages
+  set pinned_at = case when p_pinned then now() else null end
+  where id = p_message_id;
+end;
+$$;
+
+grant execute on function public.edit_message(uuid, text) to authenticated;
+grant execute on function public.delete_message(uuid) to authenticated;
+grant execute on function public.pin_message(uuid, boolean) to authenticated;
 
 -- ───────────────────────────────────────────────────────────────────────────────
 -- Storage (message attachments)

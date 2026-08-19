@@ -1,5 +1,6 @@
 import { formatTime } from "@/lib/utils";
 import { formatBytes, isImageAttachment } from "@/lib/attachments";
+import { MessageActions } from "./MessageActions";
 import type { Attachment, Profile, ReplyTo } from "@/lib/types";
 
 function CheckIcon() {
@@ -15,14 +16,6 @@ function CheckIcon() {
   );
 }
 
-function ReplyIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M9 17l-5-5 5-5M4 12h10a6 6 0 0 1 6 6v1" />
-    </svg>
-  );
-}
-
 export function MessageBubble({
   content,
   createdAt,
@@ -31,7 +24,14 @@ export function MessageBubble({
   sender,
   attachments = [],
   replyTo,
+  editedAt,
+  deletedAt,
+  pinnedAt,
   onReply,
+  onCopy,
+  onPin,
+  onEdit,
+  onDelete,
 }: {
   content: string;
   createdAt: string;
@@ -40,38 +40,56 @@ export function MessageBubble({
   sender?: Profile | null;
   attachments?: Attachment[];
   replyTo?: ReplyTo | null;
+  editedAt?: string | null;
+  deletedAt?: string | null;
+  pinnedAt?: string | null;
   onReply?: () => void;
+  onCopy?: () => void;
+  onPin?: () => void;
+  onEdit?: () => void;
+  onDelete?: () => void;
 }) {
   const images = attachments.filter(isImageAttachment);
   const files = attachments.filter((a) => !isImageAttachment(a));
+  const deleted = Boolean(deletedAt);
 
   return (
-    <div className={`group relative flex px-3 py-0.5 ${isOwn ? "justify-end" : "justify-start"}`}>
-      {onReply && (
-        <button
-          onClick={onReply}
-          aria-label="Reply"
-          title="Reply"
-          className="absolute -top-2 right-2 z-10 rounded-full bg-white p-1.5 text-gray-500 shadow ring-1 ring-gray-200 transition-opacity hover:text-blue-600 md:opacity-0 md:group-hover:opacity-100"
-        >
-          <ReplyIcon />
-        </button>
+    <div
+      className={`group relative flex px-3 py-0.5 ${
+        isOwn ? "justify-end" : "justify-start"
+      }`}
+    >
+      {!deleted && onReply && (
+        <div className="absolute -top-3 right-2 z-20 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
+          <MessageActions
+            pinned={Boolean(pinnedAt)}
+            deleted={deleted}
+            isOwn={isOwn}
+            onReply={onReply}
+            onCopy={onCopy ?? (() => {})}
+            onPin={onPin ?? (() => {})}
+            onEdit={onEdit ?? (() => {})}
+            onDelete={onDelete ?? (() => {})}
+          />
+        </div>
       )}
 
       <div
         className={`max-w-[78%] rounded-2xl px-3 py-1.5 shadow-sm ${
-          isOwn
-            ? "rounded-br-md bg-[#d9ecfd]"
-            : "rounded-bl-md border border-gray-100 bg-white"
+          deleted
+            ? "bg-gray-100 text-gray-400 italic"
+            : isOwn
+              ? "rounded-br-md bg-[#d9ecfd]"
+              : "rounded-bl-md border border-gray-100 bg-white"
         }`}
       >
-        {showSenderName && sender && (
+        {!deleted && showSenderName && sender && (
           <div className="mb-0.5 text-xs font-semibold text-blue-600">
             {sender.display_name}
           </div>
         )}
 
-        {replyTo && (
+        {!deleted && replyTo && (
           <div className="mb-1 overflow-hidden rounded-lg border-l-4 border-blue-400 bg-black/5 px-2 py-1">
             <div className="truncate text-xs font-semibold text-blue-600">
               {replyTo.sender_name}
@@ -85,64 +103,71 @@ export function MessageBubble({
           </div>
         )}
 
-        {attachments.length > 0 && (
-          <div className="mb-1 flex flex-col gap-1">
-            {images.length > 0 && (
-              <div
-                className={`grid gap-1 ${
-                  images.length > 1 ? "grid-cols-2" : "grid-cols-1"
-                }`}
-              >
-                {images.map((att) => (
+        {deleted ? (
+          <p className="text-sm">This message was deleted</p>
+        ) : (
+          <>
+            {attachments.length > 0 && (
+              <div className="mb-1 flex flex-col gap-1">
+                {images.length > 0 && (
+                  <div
+                    className={`grid gap-1 ${
+                      images.length > 1 ? "grid-cols-2" : "grid-cols-1"
+                    }`}
+                  >
+                    {images.map((att) => (
+                      <a
+                        key={att.path}
+                        href={att.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        title={att.name}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={att.url}
+                          alt={att.name}
+                          className="max-h-56 w-full rounded-lg object-cover"
+                        />
+                      </a>
+                    ))}
+                  </div>
+                )}
+                {files.map((att) => (
                   <a
                     key={att.path}
                     href={att.url}
                     target="_blank"
                     rel="noreferrer"
-                    title={att.name}
+                    className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white/70 px-2.5 py-2 transition-colors hover:bg-white"
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={att.url}
-                      alt={att.name}
-                      className="max-h-56 w-full rounded-lg object-cover"
-                    />
+                    <FileIcon />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium text-gray-800">
+                        {att.name}
+                      </div>
+                      <div className="text-[11px] text-gray-500">
+                        {formatBytes(att.size)}
+                      </div>
+                    </div>
+                    <DownloadIcon />
                   </a>
                 ))}
               </div>
             )}
-            {files.map((att) => (
-              <a
-                key={att.path}
-                href={att.url}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white/70 px-2.5 py-2 transition-colors hover:bg-white"
-              >
-                <FileIcon />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium text-gray-800">
-                    {att.name}
-                  </div>
-                  <div className="text-[11px] text-gray-500">
-                    {formatBytes(att.size)}
-                  </div>
-                </div>
-                <DownloadIcon />
-              </a>
-            ))}
-          </div>
-        )}
 
-        {content && (
-          <p className="whitespace-pre-wrap break-words text-[15px] leading-snug text-gray-900">
-            {content}
-          </p>
+            {content && (
+              <p className="whitespace-pre-wrap break-words text-[15px] leading-snug text-gray-900">
+                {content}
+              </p>
+            )}
+          </>
         )}
 
         <div className="mt-0.5 flex items-center justify-end gap-1 text-[11px] text-gray-500">
           <span>{formatTime(createdAt)}</span>
-          {isOwn && <CheckIcon />}
+          {!deleted && editedAt && <span>(edited)</span>}
+          {!deleted && isOwn && <CheckIcon />}
         </div>
       </div>
     </div>
