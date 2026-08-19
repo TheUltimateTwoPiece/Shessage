@@ -1,6 +1,6 @@
 import { formatTime } from "@/lib/utils";
 import { formatBytes, isImageAttachment } from "@/lib/attachments";
-import type { Attachment, Profile } from "@/lib/types";
+import type { Attachment, Profile, ReplyTo } from "@/lib/types";
 
 function CheckIcon() {
   return (
@@ -15,6 +15,14 @@ function CheckIcon() {
   );
 }
 
+function ReplyIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M9 17l-5-5 5-5M4 12h10a6 6 0 0 1 6 6v1" />
+    </svg>
+  );
+}
+
 export function MessageBubble({
   content,
   createdAt,
@@ -22,6 +30,8 @@ export function MessageBubble({
   showSenderName,
   sender,
   attachments = [],
+  replyTo,
+  onReply,
 }: {
   content: string;
   createdAt: string;
@@ -29,12 +39,25 @@ export function MessageBubble({
   showSenderName: boolean;
   sender?: Profile | null;
   attachments?: Attachment[];
+  replyTo?: ReplyTo | null;
+  onReply?: () => void;
 }) {
   const images = attachments.filter(isImageAttachment);
   const files = attachments.filter((a) => !isImageAttachment(a));
 
   return (
-    <div className={`flex px-3 py-0.5 ${isOwn ? "justify-end" : "justify-start"}`}>
+    <div className={`group relative flex px-3 py-0.5 ${isOwn ? "justify-end" : "justify-start"}`}>
+      {onReply && (
+        <button
+          onClick={onReply}
+          aria-label="Reply"
+          title="Reply"
+          className="absolute -top-2 right-2 z-10 rounded-full bg-white p-1.5 text-gray-500 shadow ring-1 ring-gray-200 transition-opacity hover:text-blue-600 md:opacity-0 md:group-hover:opacity-100"
+        >
+          <ReplyIcon />
+        </button>
+      )}
+
       <div
         className={`max-w-[78%] rounded-2xl px-3 py-1.5 shadow-sm ${
           isOwn
@@ -45,6 +68,20 @@ export function MessageBubble({
         {showSenderName && sender && (
           <div className="mb-0.5 text-xs font-semibold text-blue-600">
             {sender.display_name}
+          </div>
+        )}
+
+        {replyTo && (
+          <div className="mb-1 overflow-hidden rounded-lg border-l-4 border-blue-400 bg-black/5 px-2 py-1">
+            <div className="truncate text-xs font-semibold text-blue-600">
+              {replyTo.sender_name}
+            </div>
+            <div className="truncate text-xs text-gray-600">
+              {replyTo.content ||
+                (replyTo.attachment_name
+                  ? `📎 ${replyTo.attachment_name}`
+                  : "Message")}
+            </div>
           </div>
         )}
 

@@ -49,6 +49,12 @@ create table if not exists public.messages (
 alter table public.messages
   add column if not exists attachments jsonb not null default '[]';
 
+-- Reply-to: a snapshot of the message being replied to (rendered as a quote
+-- above the message). Stored inline so it works over realtime without extra
+-- fetches: { id, sender_name, content, attachment_name }.
+alter table public.messages
+  add column if not exists reply_to jsonb;
+
 create index if not exists messages_conversation_created_idx
   on public.messages (conversation_id, created_at desc);
 

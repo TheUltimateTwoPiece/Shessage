@@ -7,17 +7,21 @@ import {
   formatBytes,
   uploadAttachment,
 } from "@/lib/attachments";
-import type { Attachment } from "@/lib/types";
+import type { Attachment, ReplyTo } from "@/lib/types";
 
 export function MessageInput({
   conversationId,
   currentUserId,
+  replyTo,
+  onClearReply,
   onSend,
   disabled = false,
 }: {
   conversationId: string;
   currentUserId: string;
-  onSend: (text: string, attachments: Attachment[]) => void;
+  replyTo?: ReplyTo | null;
+  onClearReply?: () => void;
+  onSend: (text: string, attachments: Attachment[], replyTo: ReplyTo | null) => void;
   disabled?: boolean;
 }) {
   const [text, setText] = useState("");
@@ -55,7 +59,7 @@ export function MessageInput({
             files.map((f) => uploadAttachment(f, conversationId, currentUserId))
           )
         : [];
-      onSend(trimmed, attachments);
+      onSend(trimmed, attachments, replyTo ?? null);
       setText("");
       setFiles([]);
     } catch (err) {
@@ -69,6 +73,31 @@ export function MessageInput({
 
   return (
     <div className="border-t border-gray-200 bg-gray-50 px-3 pt-2">
+      {replyTo && (
+        <div className="mb-2 flex items-center gap-2 rounded-lg border-l-4 border-blue-400 bg-blue-50 px-3 py-2">
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-xs font-semibold text-blue-700">
+              Replying to {replyTo.sender_name}
+            </div>
+            <div className="truncate text-xs text-gray-600">
+              {replyTo.content ||
+                (replyTo.attachment_name
+                  ? `📎 ${replyTo.attachment_name}`
+                  : "Message")}
+            </div>
+          </div>
+          <button
+            onClick={onClearReply}
+            aria-label="Cancel reply"
+            className="rounded-full p-1 text-gray-400 hover:bg-gray-200 hover:text-gray-600"
+          >
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
+
       {files.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-2">
           {files.map((file, i) => (

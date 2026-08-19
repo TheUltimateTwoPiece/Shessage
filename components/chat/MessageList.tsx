@@ -13,6 +13,7 @@ export function MessageList({
   currentUserId,
   profilesById,
   isGroup,
+  onReply,
 }: {
   messages: Message[];
   loading: boolean;
@@ -22,6 +23,7 @@ export function MessageList({
   currentUserId: string;
   profilesById: Map<string, Profile>;
   isGroup: boolean;
+  onReply?: (msg: Message) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -105,6 +107,8 @@ export function MessageList({
             showSenderName={isGroup && msg.sender_id !== currentUserId}
             sender={sender}
             attachments={msg.attachments ?? []}
+            replyTo={msg.reply_to}
+            onReply={onReply ? () => onReply(msg) : undefined}
           />
         );
       })}

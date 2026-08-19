@@ -33,6 +33,13 @@ export type Attachment = {
   mime: string;
 };
 
+export type ReplyTo = {
+  id: string;
+  sender_name: string;
+  content: string;
+  attachment_name: string | null;
+};
+
 export type Message = {
   id: string;
   conversation_id: string;
@@ -40,6 +47,7 @@ export type Message = {
   content: string;
   created_at: string;
   attachments: Attachment[];
+  reply_to?: ReplyTo | null;
   sender?: Profile | null;
 };
 

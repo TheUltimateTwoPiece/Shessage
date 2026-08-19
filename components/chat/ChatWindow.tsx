@@ -12,6 +12,7 @@ import type {
   ConversationWithParticipants,
   Message,
   Profile,
+  ReplyTo,
 } from "@/lib/types";
 
 export function ChatWindow({
@@ -28,6 +29,7 @@ export function ChatWindow({
   const { messages, loading, loadingMore, hasMore, loadMore, appendMessage } =
     useMessages(conversation.id);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [replyTo, setReplyTo] = useState<ReplyTo | null>(null);
 
   const participants = useMemo(
     () =>
@@ -48,7 +50,24 @@ export function ChatWindow({
   const otherOnline =
     !conversation.is_group && others[0] ? isOnline(others[0].id) : false;
 
-  async function sendMessage(text: string, attachments: Attachment[]) {
+  function handleReply(msg: Message) {
+    const senderName =
+      msg.sender_id === currentUser.id
+        ? "You"
+        : profilesById.get(msg.sender_id)?.display_name ?? "Unknown";
+    setReplyTo({
+      id: msg.id,
+      sender_name: senderName,
+      content: msg.content,
+      attachment_name: msg.attachments?.[0]?.name ?? null,
+    });
+  }
+
+  async function sendMessage(
+    text: string,
+    attachments: Attachment[],
+    reply: ReplyTo | null
+  ) {
     setSendError(null);
     const supabase = createClient();
     const { data, error } = await supabase
@@ -58,6 +77,7 @@ export function ChatWindow({
         sender_id: currentUser.id,
         content: text,
         attachments,
+        reply_to: reply,
       })
       .select("*, sender:profiles(*)")
       .single();
@@ -65,6 +85,7 @@ export function ChatWindow({
       setSendError(error?.message ?? "Could not send the message.");
       return;
     }
+    setReplyTo(null);
     appendMessage(data as Message);
   }
 
@@ -114,11 +135,14 @@ export function ChatWindow({
         currentUserId={currentUser.id}
         profilesById={profilesById}
         isGroup={conversation.is_group}
+        onReply={handleReply}
       />
 
       <MessageInput
         conversationId={conversation.id}
         currentUserId={currentUser.id}
+        replyTo={replyTo}
+        onClearReply={() => setReplyTo(null)}
         onSend={sendMessage}
       />
     </div>
