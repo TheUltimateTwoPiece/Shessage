@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useUserSearch } from "@/hooks/useUserSearch";
 import { findOrCreateDirectConversation } from "@/lib/conversations";
+import { ensureConversationKey } from "@/lib/e2ee";
 import { Avatar } from "../Avatar";
 import type { Profile } from "@/lib/types";
 
@@ -27,6 +28,9 @@ export function NewConversationModal({
         currentUser.id,
         user.id
       );
+      // Create the conversation key and wrap it for every participant's
+      // device so both sides can encrypt/decrypt from the first message.
+      await ensureConversationKey(conversationId, currentUser.id);
       onStarted(conversationId);
       onClose();
     } catch (err) {

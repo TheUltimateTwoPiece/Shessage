@@ -19,6 +19,12 @@ A WhatsApp-style, end-to-end messaging app with **real-time text chat** and
 - **Group chats** with 3+ members and the sender's name above each message
 - **Screen sharing** per conversation via LiveKit, with clear
   sharing / viewing / not-sharing states and graceful error handling
+- **End-to-end encryption** — message bodies are encrypted on-device
+  (X25519 + XSalsa20-Poly1305) so the server only ever stores ciphertext
+- **Message actions** — reply, copy, pin, edit, delete (sender or group admin)
+- **File attachments** — images render inline; other files show a download chip
+- **Group hierarchy** — owner → admin → member, with group profile pictures
+  and bios; admins can remove members, delete messages, and edit group info
 - **Presence** — see which contacts are online (Supabase Realtime presence)
 - Responsive two-pane layout that collapses to a single pane on mobile
 
@@ -44,8 +50,13 @@ A WhatsApp-style, end-to-end messaging app with **real-time text chat** and
    - `conversations` — 1:1 or group chats
    - `conversation_participants` — membership, with the `is_participant()`
      helper used by the RLS policies
-   - `messages` — conversation messages, with an `attachments` column for
-     file uploads
+   - `user_keys` — each device's X25519 **public** key (used to wrap
+     conversation keys for that device)
+   - `conversation_keys` — the per-conversation symmetric key, wrapped to each
+     participant's device key; one row per (conversation, user, device, key
+     generation) so history survives key rotation
+   - `messages` — conversation messages, with `attachments` (file uploads) and
+     a `key_id` pointing at the key that encrypted it
    - `message-attachments` — a **public** Supabase Storage bucket for message
      files (uploads are restricted by RLS to conversation participants)
    - `avatars` — a **public** Supabase Storage bucket for profile pictures
@@ -124,7 +135,47 @@ and hit **Share screen** to stream one user's screen to the other.
 
 ---
 
-## 6. Deploy to Vercel
+## 6. End-to-end encryption
+
+Message **content** is end-to-end encrypted; the server (and anyone with
+Postgres access) only ever sees ciphertext. Here's how it works:
+
+1. **Device identity.** The first time you use the app on a device, the
+   browser generates an X25519 keypair (via [tweetnacl](https://tweetnacl.js.org)).
+   The public key is stored in `user_keys`; the private key never leaves the
+   device — it lives in `localStorage`.
+2. **Conversation key.** Every conversation has a random 32-byte symmetric
+   key. It is wrapped (`nacl.box`) to each participant's device public key and
+   stored in `conversation_keys`. Creating a conversation (or opening one that
+   has no key yet) creates the key and wraps it for everyone in it.
+3. **Messages.** On send, the text (and any reply quote) is encrypted with
+   `nacl.secretbox` under the conversation key, then stored in
+   `messages.content` as `v1:<base64>`. Recipients decrypt locally using the
+   conversation key they unwrap with their own private key.
+4. **Key rotation.** Removing a member or leaving a group rotates the
+   conversation key (wrapped to everyone except the departing member), so they
+   can't read future messages. Old key generations are kept, so history stays
+   decryptable.
+
+**What is *not* encrypted** (matches most messengers' metadata): sender,
+conversation id, timestamps, attachment filenames/sizes, and the
+edited/deleted/pinned flags. Pre-E2EE (legacy) plaintext messages still
+render, but new messages are always encrypted.
+
+**Limitations to know:**
+
+- The private key is stored in the browser's `localStorage`. Anyone with
+  access to your device/browser profile can read your keys (the same trust
+  model as WhatsApp Web). Passphrase-protected keys would harden this.
+- A brand-new device can only decrypt messages sent after its key was
+  registered and wrapped; earlier messages show as locked.
+- Attachments are not encrypted (the bucket is public, uploads are
+  participant-gated).
+- There is no key-verification UX yet (no safety-number comparison).
+
+---
+
+## 7. Deploy to Vercel
 
 1. Push this repo to GitHub/GitLab and import it in Vercel (or use the Vercel
    CLI: `vercel`).
@@ -150,12 +201,14 @@ components/
   Avatar.tsx
 hooks/
   useConversations.ts     # sidebar list + realtime updates
-  useMessages.ts          # history pagination + realtime inserts
+  useMessages.ts          # history pagination + realtime inserts + decrypt
   usePresence.ts          # online/offline via Realtime presence
   useUserSearch.ts        # debounced user search
 lib/
   supabase/               # browser + server clients
   conversations.ts        # create 1:1 / group conversations
+  e2ee.ts                 # device keys, conversation keys, encrypt/decrypt
+  attachments.ts          # storage uploads (avatars, files, group pics)
   types.ts, utils.ts
 proxy.ts                  # Next.js proxy (session refresh)
 supabase/schema.sql       # tables + RLS + realtime
@@ -166,5 +219,6 @@ supabase/schema.sql       # tables + RLS + realtime
 - Messages show a "delivered" ✓ once stored; read receipts are not tracked.
 - If a sharer closes their tab, the share ends when the LiveKit room closes
   (viewers clean up the dangling row automatically).
-- Group member management (adding/removing members after creation) is not
-  built yet.
+- There's no "add member to an existing group" button yet (groups are created
+  with their members); removing members and leaving a group are supported.
+- E2EE covers message content; see the E2EE section for its own limitations.

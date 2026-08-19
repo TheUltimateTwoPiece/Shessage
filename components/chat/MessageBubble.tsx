@@ -28,6 +28,7 @@ export function MessageBubble({
   deletedAt,
   pinnedAt,
   canAdminDelete = false,
+  decryptFailed = false,
   onReply,
   onCopy,
   onPin,
@@ -45,6 +46,7 @@ export function MessageBubble({
   deletedAt?: string | null;
   pinnedAt?: string | null;
   canAdminDelete?: boolean;
+  decryptFailed?: boolean;
   onReply?: () => void;
   onCopy?: () => void;
   onPin?: () => void;
@@ -108,6 +110,10 @@ export function MessageBubble({
 
         {deleted ? (
           <p className="text-sm">This message was deleted</p>
+        ) : decryptFailed ? (
+          <p className="text-sm text-gray-500">
+            🔒 This message can’t be decrypted on this device
+          </p>
         ) : (
           <>
             {attachments.length > 0 && (

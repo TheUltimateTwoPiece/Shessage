@@ -1,8 +1,14 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useMessages } from "@/hooks/useMessages";
+import {
+  decryptPayload,
+  encryptPayload,
+  ensureConversationKey,
+  getConversationKeyById,
+} from "@/lib/e2ee";
 import { Avatar } from "../Avatar";
 import { MessageList } from "./MessageList";
 import { MessageInput } from "./MessageInput";
@@ -28,7 +34,7 @@ export function ChatWindow({
   onBack: () => void;
 }) {
   const { messages, pinned, loading, loadingMore, hasMore, loadMore, appendMessage } =
-    useMessages(conversation.id);
+    useMessages(conversation.id, currentUser.id);
   const [sendError, setSendError] = useState<string | null>(null);
   const [replyTo, setReplyTo] = useState<ReplyTo | null>(null);
   const [showGroupInfo, setShowGroupInfo] = useState(false);
@@ -58,6 +64,13 @@ export function ChatWindow({
       (p) => p.user_id === currentUser.id
     )?.role ?? "member";
   const isGroupAdmin = conversation.is_group && myRole !== "member";
+
+  // Make sure this device has a conversation key (creating + wrapping one for
+  // every participant if it doesn't) so sending works and new messages are
+  // decryptable by everyone.
+  useEffect(() => {
+    ensureConversationKey(conversation.id, currentUser.id).catch(() => {});
+  }, [conversation.id, currentUser.id]);
 
   function handleReply(msg: Message) {
     const senderName =
@@ -106,8 +119,27 @@ export function ChatWindow({
 
   async function handleEditSave(id: string, content: string) {
     const supabase = createClient();
+    // Encrypt with the SAME key generation the message was sent with, so
+    // everyone who could read the original can read the edit.
+    const original = messages.find((m) => m.id === id);
+    const entry =
+      (original?.key_id
+        ? await getConversationKeyById(
+            conversation.id,
+            original.key_id,
+            currentUser.id
+          )
+        : null) ??
+      (await ensureConversationKey(conversation.id, currentUser.id));
+    const ciphertext = encryptPayload(
+      { t: content, r: original?.reply_to ?? null },
+      entry
+    );
     await runRpc(() =>
-      supabase.rpc("edit_message", { p_message_id: id, p_content: content })
+      supabase.rpc("edit_message", {
+        p_message_id: id,
+        p_content: ciphertext,
+      })
     );
   }
 
@@ -118,14 +150,17 @@ export function ChatWindow({
   ) {
     setSendError(null);
     const supabase = createClient();
+    const entry = await ensureConversationKey(conversation.id, currentUser.id);
+    // Only ciphertext ever reaches the server.
+    const content = encryptPayload({ t: text, r: reply }, entry);
     const { data, error } = await supabase
       .from("messages")
       .insert({
         conversation_id: conversation.id,
         sender_id: currentUser.id,
-        content: text,
+        content,
+        key_id: entry.keyId,
         attachments,
-        reply_to: reply,
       })
       .select("*, sender:profiles(*)")
       .single();
@@ -133,8 +168,11 @@ export function ChatWindow({
       setSendError(error?.message ?? "Could not send the message.");
       return;
     }
+    const row = data as Message;
+    const decrypted =
+      decryptPayload(row.content, entry) ?? { t: "", r: null };
     setReplyTo(null);
-    appendMessage(data as Message);
+    appendMessage({ ...row, content: decrypted.t, reply_to: decrypted.r });
   }
 
   return (
@@ -149,6 +187,13 @@ export function ChatWindow({
             <path d="M15 18l-6-6 6-6" />
           </svg>
         </button>
+        <span
+          title="End-to-end encrypted — only you and the other participants can read these messages"
+          className="shrink-0 text-base"
+          aria-label="End-to-end encrypted"
+        >
+          🔒
+        </span>
         <button
           onClick={conversation.is_group ? () => setShowGroupInfo(true) : undefined}
           className={`flex min-w-0 flex-1 items-center gap-3 text-left ${

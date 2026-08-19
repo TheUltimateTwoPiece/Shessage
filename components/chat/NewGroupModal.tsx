@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useUserSearch } from "@/hooks/useUserSearch";
 import { createGroupConversation } from "@/lib/conversations";
+import { ensureConversationKey } from "@/lib/e2ee";
 import { Avatar } from "../Avatar";
 import { Modal } from "./NewConversationModal";
 import type { Profile } from "@/lib/types";
@@ -43,6 +44,8 @@ export function NewGroupModal({
         name.trim(),
         [currentUser.id, ...Array.from(selected.keys())]
       );
+      // Create the conversation key and wrap it for every member's device.
+      await ensureConversationKey(conversationId, currentUser.id);
       onCreated(conversationId);
       onClose();
     } catch (err) {

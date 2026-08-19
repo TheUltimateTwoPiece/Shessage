@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { decryptMessageRow } from "@/lib/e2ee";
 import type { ConversationWithParticipants, Message } from "@/lib/types";
 
 export type ConversationItem = {
@@ -56,11 +57,20 @@ export function useConversations(userId: string | undefined) {
       lastByConv.set(m.conversation_id, m as Message);
     }
 
+    // Decrypt each latest-message preview (content is E2EE ciphertext).
+    const decrypted = await Promise.all(
+      Array.from(lastByConv.entries()).map(async ([cid, msg]) => {
+        const d = await decryptMessageRow(msg, uid);
+        return [cid, d] as const;
+      })
+    );
+    const decryptedByConv = new Map(decrypted);
+
     setItems(
       sortByActivity(
         conversations.map((conversation) => ({
           conversation,
-          lastMessage: lastByConv.get(conversation.id) ?? null,
+          lastMessage: decryptedByConv.get(conversation.id) ?? null,
         }))
       )
     );
@@ -95,14 +105,18 @@ export function useConversations(userId: string | undefined) {
         { event: "INSERT", schema: "public", table: "messages" },
         (payload) => {
           const msg = payload.new as Message;
-          setItems((prev) => {
-            const exists = prev.some((i) => i.conversation.id === msg.conversation_id);
-            if (!exists) return prev;
-            return sortByActivity(
-              prev.map((i) =>
-                i.conversation.id === msg.conversation_id ? { ...i, lastMessage: msg } : i
-              )
-            );
+          decryptMessageRow(msg, userId).then((decrypted) => {
+            setItems((prev) => {
+              const exists = prev.some((i) => i.conversation.id === decrypted.conversation_id);
+              if (!exists) return prev;
+              return sortByActivity(
+                prev.map((i) =>
+                  i.conversation.id === decrypted.conversation_id
+                    ? { ...i, lastMessage: decrypted }
+                    : i
+                )
+              );
+            });
           });
         }
       )

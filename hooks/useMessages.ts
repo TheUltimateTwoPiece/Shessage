@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { decryptMessageRow } from "@/lib/e2ee";
 import type { Message } from "@/lib/types";
 
 export const PAGE_SIZE = 30;
 
-export function useMessages(conversationId: string | null) {
+export function useMessages(conversationId: string | null, userId: string) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [pinned, setPinned] = useState<Message | null>(null);
   const [loading, setLoading] = useState(true);
@@ -37,6 +38,12 @@ export function useMessages(conversationId: string | null) {
     });
   }, []);
 
+  const decryptAll = useCallback(
+    async (rows: Message[]): Promise<Message[]> =>
+      Promise.all(rows.map((m) => decryptMessageRow(m, userId))),
+    [userId]
+  );
+
   const loadMore = useCallback(async () => {
     if (!conversationId || loadingMore || !hasMore) return;
     setLoadingMore(true);
@@ -48,21 +55,18 @@ export function useMessages(conversationId: string | null) {
       .order("created_at", { ascending: false })
       .range(count, count + PAGE_SIZE - 1);
     if (!error && data) {
+      const fresh = await decryptAll((data as Message[]).slice().reverse());
       setMessages((prev) => {
         // Realtime messages may have arrived since the last fetch, shifting the
         // offset — drop any ids we already have to avoid duplicates.
         const existing = new Set(prev.map((m) => m.id));
-        const fresh = (data as Message[])
-          .slice()
-          .reverse()
-          .filter((m) => !existing.has(m.id));
-        return [...fresh, ...prev];
+        return [...fresh.filter((m) => !existing.has(m.id)), ...prev];
       });
       setCount((c) => c + data.length);
       setHasMore(data.length === PAGE_SIZE);
     }
     setLoadingMore(false);
-  }, [conversationId, count, hasMore, loadingMore]);
+  }, [conversationId, count, hasMore, loadingMore, decryptAll]);
 
   // Initial load. The component is keyed by conversation id, so this hook
   // remounts per conversation and starts with fresh, empty state.
@@ -82,18 +86,21 @@ export function useMessages(conversationId: string | null) {
       .not("pinned_at", "is", null)
       .order("pinned_at", { ascending: false })
       .limit(1);
-    Promise.all([msgs, pinnedQ]).then(([mRes, pRes]) => {
+    Promise.all([msgs, pinnedQ]).then(async ([mRes, pRes]) => {
       if (!mRes.error && mRes.data) {
-        setMessages((mRes.data as Message[]).slice().reverse());
+        const rows = (mRes.data as Message[]).slice().reverse();
+        const decrypted = await decryptAll(rows);
+        setMessages(decrypted);
         setCount(mRes.data.length);
         setHasMore(mRes.data.length === PAGE_SIZE);
       }
       if (!pRes.error && pRes.data?.[0]) {
-        setPinned(pRes.data[0] as Message);
+        const [decryptedPinned] = await decryptAll([pRes.data[0] as Message]);
+        setPinned(decryptedPinned);
       }
       setLoading(false);
     });
-  }, [conversationId]);
+  }, [conversationId, decryptAll]);
 
   // Realtime: append new messages, and apply edit/delete/pin updates live.
   useEffect(() => {
@@ -110,7 +117,9 @@ export function useMessages(conversationId: string | null) {
           filter: `conversation_id=eq.${conversationId}`,
         },
         (payload) => {
-          appendMessage(payload.new as Message);
+          decryptMessageRow(payload.new as Message, userId).then((m) =>
+            appendMessage(m)
+          );
         }
       )
       .on(
@@ -122,14 +131,16 @@ export function useMessages(conversationId: string | null) {
           filter: `conversation_id=eq.${conversationId}`,
         },
         (payload) => {
-          applyUpdate(payload.new as Message);
+          decryptMessageRow(payload.new as Message, userId).then((m) =>
+            applyUpdate(m)
+          );
         }
       );
     channel.subscribe();
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [conversationId, appendMessage, applyUpdate]);
+  }, [conversationId, userId, appendMessage, applyUpdate]);
 
   return { messages, pinned, loading, loadingMore, hasMore, loadMore, appendMessage };
 }

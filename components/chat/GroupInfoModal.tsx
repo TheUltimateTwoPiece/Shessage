@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { uploadGroupAvatar } from "@/lib/attachments";
+import { rotateConversationKey } from "@/lib/e2ee";
 import { Avatar } from "../Avatar";
 import { Modal } from "./NewConversationModal";
 import type {
@@ -112,12 +113,36 @@ export function GroupInfoModal({
   async function removeMember(member: ParticipantRow) {
     const supabase = createClient();
     await run(async () => {
+      // Rotate the conversation key BEFORE removing them, wrapped to everyone
+      // except the departing member, so they can't read future messages.
+      await rotateConversationKey(conversation.id, currentUser.id, [
+        member.user_id,
+      ]);
       const { error } = await supabase.rpc("remove_member", {
         p_conversation_id: conversation.id,
         p_user_id: member.user_id,
       });
       if (error) throw new Error(error.message);
       setMembers((prev) => prev.filter((m) => m.user_id !== member.user_id));
+    });
+  }
+
+  async function leaveGroup() {
+    if (!window.confirm("Leave this group? You won’t be able to read new messages.")) {
+      return;
+    }
+    const supabase = createClient();
+    await run(async () => {
+      // Rotate the key for everyone else, then remove yourself.
+      await rotateConversationKey(conversation.id, currentUser.id, [
+        currentUser.id,
+      ]);
+      const { error } = await supabase.rpc("remove_member", {
+        p_conversation_id: conversation.id,
+        p_user_id: currentUser.id,
+      });
+      if (error) throw new Error(error.message);
+      onClose();
     });
   }
 
@@ -207,6 +232,15 @@ export function GroupInfoModal({
         <h3 className="mb-2 text-sm font-semibold text-gray-700">
           {members.length} members
         </h3>
+        {myRole !== "owner" && (
+          <button
+            onClick={leaveGroup}
+            disabled={busy}
+            className="mt-3 w-full rounded-lg border border-red-300 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50"
+          >
+            Leave group
+          </button>
+        )}
         <div className="max-h-56 overflow-y-auto">
           {members.map((member) => {
             const profile = member.profiles;

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useConversations } from "@/hooks/useConversations";
 import { usePresence } from "@/hooks/usePresence";
+import { clearLocalSession, registerDeviceKey } from "@/lib/e2ee";
 import { ConversationList } from "./ConversationList";
 import { ChatWindow } from "./ChatWindow";
 import type { ConversationWithParticipants, Profile } from "@/lib/types";
@@ -42,6 +43,17 @@ export function ChatApp() {
       setAuthLoading(false);
     })();
   }, [router]);
+
+  // End-to-end encryption: make sure this device has a keypair, and publish
+  // its public key so peers can wrap conversation keys for it.
+  useEffect(() => {
+    const uid = user?.id;
+    if (!uid) return;
+    registerDeviceKey(uid).catch(() => {
+      // Key registration failing shouldn't block the UI; it will retry on the
+      // next load and messages simply stay undecryptable until it succeeds.
+    });
+  }, [user]);
 
   const { items, loading, refresh } = useConversations(user?.id);
   const { isOnline } = usePresence(user?.id);
@@ -82,6 +94,7 @@ export function ChatApp() {
   const pendingActive = activeId !== null && !activeConversation;
 
   async function handleLogout() {
+    clearLocalSession();
     const supabase = createClient();
     await supabase.auth.signOut();
     router.replace("/login");

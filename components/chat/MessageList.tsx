@@ -149,6 +149,7 @@ export function MessageList({
             }
             onDelete={onDelete ? () => onDelete(msg) : undefined}
             canAdminDelete={canAdminDelete && msg.sender_id !== currentUserId}
+            decryptFailed={msg.decryptFailed}
           />
         );
       })}

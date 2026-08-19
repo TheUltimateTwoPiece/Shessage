@@ -53,11 +53,14 @@ export type Message = {
   content: string;
   created_at: string;
   attachments: Attachment[];
+  key_id?: string | null;
   reply_to?: ReplyTo | null;
   edited_at?: string | null;
   deleted_at?: string | null;
   pinned_at?: string | null;
   sender?: Profile | null;
+  /** Set when a message can't be decrypted (e.g. a device that joined late). */
+  decryptFailed?: boolean;
 };
 
 export type ScreenShare = {

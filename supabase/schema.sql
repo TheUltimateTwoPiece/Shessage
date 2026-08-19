@@ -107,6 +107,41 @@ alter table public.messages
 create index if not exists messages_conversation_created_idx
   on public.messages (conversation_id, created_at desc);
 
+-- End-to-end encryption (see README for the full design):
+--   user_keys          — one row per device per user, holding that device's
+--                        X25519 public key (the private key never leaves the
+--                        device; it lives encrypted in the browser's
+--                        localStorage).
+--   conversation_keys  — the per-conversation symmetric key, wrapped to each
+--                        participant's device public key (nacl.box). One row
+--                        per (conversation, user, device, key generation).
+--                        Generations are never deleted, so old messages stay
+--                        decryptable after a rotation.
+--   messages.key_id    — which key generation encrypted this message.
+create table if not exists public.user_keys (
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  device_key_id uuid not null,
+  public_key text not null, -- base64 X25519 public key
+  created_at timestamptz not null default now(),
+  primary key (user_id, device_key_id)
+);
+
+create table if not exists public.conversation_keys (
+  conversation_id uuid not null references public.conversations (id) on delete cascade,
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  device_key_id uuid not null,
+  key_id uuid not null, -- identifies the key generation
+  ciphertext text not null, -- base64(ephemeral_pub || nonce || box(key))
+  created_at timestamptz not null default now(),
+  primary key (conversation_id, user_id, device_key_id, key_id)
+);
+
+create index if not exists conversation_keys_lookup_idx
+  on public.conversation_keys (conversation_id, user_id, device_key_id, created_at desc);
+
+alter table public.messages
+  add column if not exists key_id uuid;
+
 -- LiveKit screen-share sessions, one active row per conversation at a time.
 create table if not exists public.screen_shares (
   id uuid primary key default gen_random_uuid(),
@@ -201,6 +236,8 @@ alter table public.conversations enable row level security;
 alter table public.conversation_participants enable row level security;
 alter table public.messages enable row level security;
 alter table public.screen_shares enable row level security;
+alter table public.user_keys enable row level security;
+alter table public.conversation_keys enable row level security;
 
 -- Drop EVERY existing policy on these tables so re-running this file always
 -- leaves the project in a known-good state (fixes stale/incorrect policies).
@@ -210,7 +247,7 @@ begin
   for pol in
     select schemaname, tablename, policyname
     from pg_policies
-    where (schemaname = 'public' and tablename in ('profiles', 'conversations', 'conversation_participants', 'messages', 'screen_shares'))
+    where (schemaname = 'public' and tablename in ('profiles', 'conversations', 'conversation_participants', 'messages', 'screen_shares', 'user_keys', 'conversation_keys'))
        or (schemaname = 'storage' and tablename = 'objects')
   loop
     execute format('drop policy if exists %I on %I.%I', pol.policyname, pol.schemaname, pol.tablename);
@@ -289,6 +326,37 @@ create policy "Admins can add members to their groups"
     and coalesce(role, 'member') = 'member'
   );
 
+-- End-to-end encryption keys: public keys are public by design (any
+-- participant needs them to wrap conversation keys); users register their own
+-- device keys; key rows may only be read/inserted by participants.
+create policy "Anyone signed in can view device public keys"
+  on public.user_keys for select to authenticated
+  using (true);
+
+create policy "Register your own device key"
+  on public.user_keys for insert to authenticated
+  with check (user_id = auth.uid());
+
+create policy "Remove your own device key"
+  on public.user_keys for delete to authenticated
+  using (user_id = auth.uid());
+
+create policy "Participants can read wrapped conversation keys"
+  on public.conversation_keys for select to authenticated
+  using (public.is_participant(conversation_id));
+
+-- Any participant may store a wrapped copy of a conversation key for any
+-- participant (rows are useless without the recipient's private key).
+create policy "Participants can store wrapped conversation keys"
+  on public.conversation_keys for insert to authenticated
+  with check (
+    public.is_participant(conversation_id)
+    and exists (
+      select 1 from public.conversation_participants cp
+      where cp.conversation_id = conversation_id and cp.user_id = user_id
+    )
+  );
+
 -- Messages
 create policy "Read messages in conversations you're in"
   on public.messages for select to authenticated
@@ -332,6 +400,7 @@ returns table (
   sender_id uuid,
   content text,
   attachments jsonb,
+  key_id uuid,
   deleted_at timestamptz,
   created_at timestamptz
 )
@@ -341,7 +410,7 @@ security definer
 set search_path = public
 as $$
   select distinct on (m.conversation_id)
-    m.conversation_id, m.id, m.sender_id, m.content, m.attachments, m.deleted_at, m.created_at
+    m.conversation_id, m.id, m.sender_id, m.content, m.attachments, m.key_id, m.deleted_at, m.created_at
   from public.messages m
   join public.conversation_participants cp
     on cp.conversation_id = m.conversation_id

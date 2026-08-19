@@ -212,10 +212,12 @@ function ConversationRow({
   const preview = lastMessage
     ? lastMessage.deleted_at
       ? "This message was deleted"
-      : lastMessage.content ||
-        (lastMessage.attachments?.length
-          ? `📎 ${lastMessage.attachments[0].name}`
-          : "No messages yet")
+      : lastMessage.decryptFailed
+        ? "🔒 Encrypted message"
+        : lastMessage.content ||
+          (lastMessage.attachments?.length
+            ? `📎 ${lastMessage.attachments[0].name}`
+            : "No messages yet")
     : "No messages yet";
 
   return (
