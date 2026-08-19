@@ -36,7 +36,9 @@ A WhatsApp-style, end-to-end messaging app with **real-time text chat** and
 
 1. Create a new project in the Supabase dashboard.
 2. Open **SQL Editor** and paste the entire contents of
-   [`supabase/schema.sql`](./supabase/schema.sql), then run it. This creates:
+   [`supabase/schema.sql`](./supabase/schema.sql), then run it. The script is
+   idempotent — it's safe to re-run any time (it drops and recreates the RLS
+   policies), so if you ever see RLS errors, just re-run it. It creates:
 
    - `profiles` — 1:1 with `auth.users`, auto-created on signup via a trigger
    - `conversations` — 1:1 or group chats

@@ -1,7 +1,7 @@
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- Shessage — Supabase schema
 -- Run this in the Supabase Dashboard → SQL Editor (or `supabase db push`).
--- It is safe to run from top to bottom.
+-- It is idempotent: safe to run from top to bottom, and safe to re-run.
 -- ═══════════════════════════════════════════════════════════════════════════════
 
 create extension if not exists pgcrypto;
@@ -120,6 +120,21 @@ alter table public.conversation_participants enable row level security;
 alter table public.messages enable row level security;
 alter table public.screen_shares enable row level security;
 
+-- Drop EVERY existing policy on these tables so re-running this file always
+-- leaves the project in a known-good state (fixes stale/incorrect policies).
+do $$
+declare pol record;
+begin
+  for pol in
+    select tablename, policyname
+    from pg_policies
+    where schemaname = 'public'
+      and tablename in ('profiles', 'conversations', 'conversation_participants', 'messages', 'screen_shares')
+  loop
+    execute format('drop policy if exists %I on public.%I', pol.policyname, pol.tablename);
+  end loop;
+end $$;
+
 -- Helper: is the current user a participant of the given conversation?
 create or replace function public.is_participant(conversation_id uuid)
 returns boolean
@@ -134,40 +149,42 @@ as $$
   );
 $$;
 
--- Profiles: readable by everyone (needed for search + participant display),
--- only the owner can update their own row.
+-- Profiles: readable by signed-in users (needed for search + participant
+-- display), only the owner can update their own row.
 create policy "Profiles are viewable by everyone"
-  on public.profiles for select
+  on public.profiles for select to authenticated
   using (true);
 
 create policy "Users can update their own profile"
-  on public.profiles for update
+  on public.profiles for update to authenticated
   using (auth.uid() = id);
 
 -- Conversations
 create policy "Read conversations you participate in"
-  on public.conversations for select
+  on public.conversations for select to authenticated
   using (public.is_participant(id));
 
+-- Anyone signed in may create a conversation; membership is added separately
+-- (and only by participants) via conversation_participants policies.
 create policy "Anyone signed in can create a conversation"
-  on public.conversations for insert
+  on public.conversations for insert to authenticated
   with check (true);
 
 create policy "Update conversations you participate in"
-  on public.conversations for update
+  on public.conversations for update to authenticated
   using (public.is_participant(id));
 
 -- Participants: read rows of conversations you're in; insert your own
 -- membership, or add members once you're already a participant.
 create policy "Read participants of conversations you're in"
-  on public.conversation_participants for select
+  on public.conversation_participants for select to authenticated
   using (
     user_id = auth.uid()
     or public.is_participant(conversation_id)
   );
 
 create policy "Insert participants for yourself or conversations you're in"
-  on public.conversation_participants for insert
+  on public.conversation_participants for insert to authenticated
   with check (
     user_id = auth.uid()
     or public.is_participant(conversation_id)
@@ -175,11 +192,11 @@ create policy "Insert participants for yourself or conversations you're in"
 
 -- Messages
 create policy "Read messages in conversations you're in"
-  on public.messages for select
+  on public.messages for select to authenticated
   using (public.is_participant(conversation_id));
 
 create policy "Insert messages in conversations you're in"
-  on public.messages for insert
+  on public.messages for insert to authenticated
   with check (
     sender_id = auth.uid()
     and public.is_participant(conversation_id)
@@ -187,27 +204,51 @@ create policy "Insert messages in conversations you're in"
 
 -- Screen shares
 create policy "Read screen shares in conversations you're in"
-  on public.screen_shares for select
+  on public.screen_shares for select to authenticated
   using (public.is_participant(conversation_id));
 
 create policy "Insert screen shares you start in conversations you're in"
-  on public.screen_shares for insert
+  on public.screen_shares for insert to authenticated
   with check (
     sharer_id = auth.uid()
     and public.is_participant(conversation_id)
   );
 
 create policy "Update screen shares in conversations you're in"
-  on public.screen_shares for update
+  on public.screen_shares for update to authenticated
   using (public.is_participant(conversation_id));
 
 -- ───────────────────────────────────────────────────────────────────────────────
 -- Realtime
 -- ───────────────────────────────────────────────────────────────────────────────
 -- Broadcasts row changes so the app can update live without polling.
--- (Supabase free tier publishes these tables to the `supabase_realtime`
--- publication automatically; these statements make it explicit.)
-alter publication supabase_realtime add table public.messages;
-alter publication supabase_realtime add table public.conversations;
-alter publication supabase_realtime add table public.conversation_participants;
-alter publication supabase_realtime add table public.screen_shares;
+-- Idempotent: only adds tables that aren't already members.
+do $$
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    if not exists (
+      select 1 from pg_publication_tables
+      where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'messages'
+    ) then
+      alter publication supabase_realtime add table public.messages;
+    end if;
+    if not exists (
+      select 1 from pg_publication_tables
+      where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'conversations'
+    ) then
+      alter publication supabase_realtime add table public.conversations;
+    end if;
+    if not exists (
+      select 1 from pg_publication_tables
+      where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'conversation_participants'
+    ) then
+      alter publication supabase_realtime add table public.conversation_participants;
+    end if;
+    if not exists (
+      select 1 from pg_publication_tables
+      where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'screen_shares'
+    ) then
+      alter publication supabase_realtime add table public.screen_shares;
+    end if;
+  end if;
+end $$;

@@ -6,9 +6,11 @@ import { createClient } from "@/lib/supabase/client";
  */
 async function addParticipants(conversationId: string, userIds: string[]) {
   const supabase = createClient();
-  const unique = Array.from(new Set(userIds));
-  const me = unique[0];
-  const rest = unique.slice(1);
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const me = user?.id;
+  const rest = Array.from(new Set(userIds.filter((id) => id && id !== me)));
 
   if (me) {
     const { error } = await supabase
@@ -46,17 +48,18 @@ export async function findOrCreateDirectConversation(
   });
   if (existing) return existing.id;
 
-  const { data: conv, error } = await supabase
-    .from("conversations")
-    .insert({ is_group: false })
-    .select()
-    .single();
-  if (error || !conv) {
-    throw new Error(error?.message ?? "Could not create the conversation.");
-  }
+  // Generate the id client-side so we don't have to SELECT the row back: a
+  // brand-new conversation is invisible to the user (RLS) until they're added
+  // as a participant, so `insert().select()` would return nothing.
+  const conversationId = crypto.randomUUID();
 
-  await addParticipants(conv.id, [myId, otherId]);
-  return conv.id;
+  const { error } = await supabase
+    .from("conversations")
+    .insert({ id: conversationId, is_group: false });
+  if (error) throw new Error(error.message);
+
+  await addParticipants(conversationId, [myId, otherId]);
+  return conversationId;
 }
 
 export async function createGroupConversation(
@@ -64,15 +67,13 @@ export async function createGroupConversation(
   memberIds: string[]
 ): Promise<string> {
   const supabase = createClient();
-  const { data: conv, error } = await supabase
-    .from("conversations")
-    .insert({ is_group: true, name: name || "Group" })
-    .select()
-    .single();
-  if (error || !conv) {
-    throw new Error(error?.message ?? "Could not create the group.");
-  }
+  const conversationId = crypto.randomUUID();
 
-  await addParticipants(conv.id, memberIds);
-  return conv.id;
+  const { error } = await supabase
+    .from("conversations")
+    .insert({ id: conversationId, is_group: true, name: name || "Group" });
+  if (error) throw new Error(error.message);
+
+  await addParticipants(conversationId, memberIds);
+  return conversationId;
 }
