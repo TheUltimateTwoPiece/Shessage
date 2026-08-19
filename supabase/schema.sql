@@ -282,10 +282,10 @@ create policy "Read participants of conversations you're in"
     or public.is_participant(conversation_id)
   );
 
-create policy "Insert participants for yourself or conversations you're in"
+create policy "Admins can add members to their groups"
   on public.conversation_participants for insert to authenticated
   with check (
-    (user_id = auth.uid() or public.is_participant(conversation_id))
+    public.is_group_admin(conversation_id)
     and coalesce(role, 'member') = 'member'
   );
 
@@ -572,7 +572,55 @@ begin
 end;
 $$;
 
+-- 1:1 chats: find-or-create. Routing creation through an RPC (instead of
+-- direct participant inserts) means no user can add themselves to a
+-- conversation they aren't part of.
+create or replace function public.create_direct_conversation(p_other_id uuid)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_me uuid := auth.uid();
+  v_conv_id uuid;
+begin
+  if v_me is null then
+    raise exception 'Not authenticated';
+  end if;
+  if p_other_id is null or p_other_id = v_me then
+    raise exception 'Invalid recipient';
+  end if;
+
+  -- Reuse an existing 1:1 between the two users.
+  select cp1.conversation_id into v_conv_id
+  from public.conversation_participants cp1
+  join public.conversation_participants cp2
+    on cp2.conversation_id = cp1.conversation_id
+  join public.conversations c on c.id = cp1.conversation_id
+  where cp1.user_id = v_me
+    and cp2.user_id = p_other_id
+    and c.is_group = false
+    and (select count(*) from public.conversation_participants cp3
+         where cp3.conversation_id = cp1.conversation_id) = 2
+  limit 1;
+  if v_conv_id is not null then
+    return v_conv_id;
+  end if;
+
+  insert into public.conversations (is_group)
+  values (false)
+  returning id into v_conv_id;
+
+  insert into public.conversation_participants (conversation_id, user_id, role)
+  values (v_conv_id, v_me, 'member'), (v_conv_id, p_other_id, 'member');
+
+  return v_conv_id;
+end;
+$$;
+
 grant execute on function public.create_group(text, uuid[]) to authenticated;
+grant execute on function public.create_direct_conversation(uuid) to authenticated;
 grant execute on function public.set_member_role(uuid, uuid, text) to authenticated;
 grant execute on function public.remove_member(uuid, uuid) to authenticated;
 grant execute on function public.delete_any_message(uuid) to authenticated;
