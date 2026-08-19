@@ -16,8 +16,13 @@ create table if not exists public.profiles (
   email text,
   display_name text not null,
   avatar_url text,
+  bio text,
   created_at timestamptz not null default now()
 );
+
+-- (Upgrade path for projects where the table already exists.)
+alter table public.profiles
+  add column if not exists bio text;
 
 create table if not exists public.conversations (
   id uuid primary key default gen_random_uuid(),
@@ -395,6 +400,30 @@ create policy "Uploaders can delete their own message attachments"
   using (
     bucket_id = 'message-attachments'
     and auth.uid() = (storage.foldername(name))[2]::uuid
+  );
+
+-- Profile avatars: public bucket so avatar URLs render everywhere. Each user
+-- can only write to their own folder: {user_id}/{uuid}-{filename}
+insert into storage.buckets (id, name, public)
+values ('avatars', 'avatars', true)
+on conflict (id) do nothing;
+
+create policy "Anyone can view avatars"
+  on storage.objects for select
+  using (bucket_id = 'avatars');
+
+create policy "Upload your own avatar"
+  on storage.objects for insert to authenticated
+  with check (
+    bucket_id = 'avatars'
+    and auth.uid() = (storage.foldername(name))[1]::uuid
+  );
+
+create policy "Delete your own avatar"
+  on storage.objects for delete to authenticated
+  using (
+    bucket_id = 'avatars'
+    and auth.uid() = (storage.foldername(name))[1]::uuid
   );
 
 -- ───────────────────────────────────────────────────────────────────────────────

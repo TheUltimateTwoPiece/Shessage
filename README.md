@@ -48,6 +48,8 @@ A WhatsApp-style, end-to-end messaging app with **real-time text chat** and
      file uploads
    - `message-attachments` — a **public** Supabase Storage bucket for message
      files (uploads are restricted by RLS to conversation participants)
+   - `avatars` — a **public** Supabase Storage bucket for profile pictures
+     (each user can only write to their own folder)
    - `screen_shares` — active LiveKit screen-share sessions
    - **Row Level Security** on every table so users can only read/write
      conversations they participate in

@@ -40,6 +40,27 @@ export async function uploadAttachment(
   };
 }
 
+/**
+ * Uploads a profile picture to the `avatars` bucket under
+ * `{user_id}/{uuid}-{ext}` and returns its public URL. Storage RLS only
+ * allows the owner to write to their own folder.
+ */
+export async function uploadAvatar(file: File, userId: string): Promise<string> {
+  const supabase = createClient();
+  const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
+  const path = `${userId}/${crypto.randomUUID()}.${ext}`;
+
+  const { error } = await supabase.storage.from("avatars").upload(path, file, {
+    cacheControl: "3600",
+    contentType: file.type || "image/jpeg",
+    upsert: false,
+  });
+  if (error) throw new Error(`Upload failed: ${error.message}`);
+
+  const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+  return data.publicUrl;
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;

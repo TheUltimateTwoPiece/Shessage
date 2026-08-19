@@ -3,6 +3,7 @@ export type Profile = {
   email: string | null;
   display_name: string;
   avatar_url: string | null;
+  bio: string | null;
   created_at: string;
 };
 
