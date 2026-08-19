@@ -44,6 +44,11 @@ create table if not exists public.messages (
   created_at timestamptz not null default now()
 );
 
+-- File attachments live in Supabase Storage; each message stores an array of
+-- {path, url, name, size, mime} under this column.
+alter table public.messages
+  add column if not exists attachments jsonb not null default '[]';
+
 create index if not exists messages_conversation_created_idx
   on public.messages (conversation_id, created_at desc);
 
@@ -148,12 +153,12 @@ do $$
 declare pol record;
 begin
   for pol in
-    select tablename, policyname
+    select schemaname, tablename, policyname
     from pg_policies
-    where schemaname = 'public'
-      and tablename in ('profiles', 'conversations', 'conversation_participants', 'messages', 'screen_shares')
+    where (schemaname = 'public' and tablename in ('profiles', 'conversations', 'conversation_participants', 'messages', 'screen_shares'))
+       or (schemaname = 'storage' and tablename = 'objects')
   loop
-    execute format('drop policy if exists %I on public.%I', pol.policyname, pol.tablename);
+    execute format('drop policy if exists %I on %I.%I', pol.policyname, pol.schemaname, pol.tablename);
   end loop;
 end $$;
 
@@ -247,12 +252,14 @@ create policy "Update screen shares in conversations you're in"
 -- Latest message per conversation for the current user (used by the sidebar
 -- previews). Lets the client avoid fetching every message in every
 -- conversation just to render a one-line preview.
-create or replace function public.get_last_message()
+drop function if exists public.get_last_message();
+create function public.get_last_message()
 returns table (
   conversation_id uuid,
   id uuid,
   sender_id uuid,
   content text,
+  attachments jsonb,
   created_at timestamptz
 )
 language sql
@@ -261,7 +268,7 @@ security definer
 set search_path = public
 as $$
   select distinct on (m.conversation_id)
-    m.conversation_id, m.id, m.sender_id, m.content, m.created_at
+    m.conversation_id, m.id, m.sender_id, m.content, m.attachments, m.created_at
   from public.messages m
   join public.conversation_participants cp
     on cp.conversation_id = m.conversation_id
@@ -270,6 +277,40 @@ as $$
 $$;
 
 grant execute on function public.get_last_message() to authenticated;
+
+-- ───────────────────────────────────────────────────────────────────────────────
+-- Storage (message attachments)
+-- ───────────────────────────────────────────────────────────────────────────────
+-- Public bucket so attachment URLs render directly. Uploads are restricted to
+-- participants of the conversation encoded in the object path:
+--   {conversation_id}/{user_id}/{uuid}-{filename}
+insert into storage.buckets (id, name, public)
+values ('message-attachments', 'message-attachments', true)
+on conflict (id) do nothing;
+
+-- (RLS on storage.objects is enabled by default in Supabase projects; the
+-- policies below gate uploads. The management API can't toggle it, so it's
+-- not repeated here.)
+
+create policy "Anyone can view message attachments"
+  on storage.objects for select
+  using (bucket_id = 'message-attachments');
+
+create policy "Participants can upload message attachments"
+  on storage.objects for insert to authenticated
+  with check (
+    bucket_id = 'message-attachments'
+    and auth.uid() = (storage.foldername(name))[2]::uuid
+    and public.is_participant((storage.foldername(name))[1]::uuid)
+  );
+
+-- Uploaders can delete their own attachments.
+create policy "Uploaders can delete their own message attachments"
+  on storage.objects for delete to authenticated
+  using (
+    bucket_id = 'message-attachments'
+    and auth.uid() = (storage.foldername(name))[2]::uuid
+  );
 
 -- ───────────────────────────────────────────────────────────────────────────────
 -- Realtime

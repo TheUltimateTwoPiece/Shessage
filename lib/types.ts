@@ -25,12 +25,21 @@ export type ConversationWithParticipants = Conversation & {
   conversation_participants: ParticipantRow[];
 };
 
+export type Attachment = {
+  path: string;
+  url: string;
+  name: string;
+  size: number;
+  mime: string;
+};
+
 export type Message = {
   id: string;
   conversation_id: string;
   sender_id: string;
   content: string;
   created_at: string;
+  attachments: Attachment[];
   sender?: Profile | null;
 };
 

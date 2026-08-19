@@ -1,5 +1,6 @@
 import { formatTime } from "@/lib/utils";
-import type { Profile } from "@/lib/types";
+import { formatBytes, isImageAttachment } from "@/lib/attachments";
+import type { Attachment, Profile } from "@/lib/types";
 
 function CheckIcon() {
   return (
@@ -20,13 +21,18 @@ export function MessageBubble({
   isOwn,
   showSenderName,
   sender,
+  attachments = [],
 }: {
   content: string;
   createdAt: string;
   isOwn: boolean;
   showSenderName: boolean;
   sender?: Profile | null;
+  attachments?: Attachment[];
 }) {
+  const images = attachments.filter(isImageAttachment);
+  const files = attachments.filter((a) => !isImageAttachment(a));
+
   return (
     <div className={`flex px-3 py-0.5 ${isOwn ? "justify-end" : "justify-start"}`}>
       <div
@@ -41,14 +47,84 @@ export function MessageBubble({
             {sender.display_name}
           </div>
         )}
-        <p className="whitespace-pre-wrap break-words text-[15px] leading-snug text-gray-900">
-          {content}
-        </p>
+
+        {attachments.length > 0 && (
+          <div className="mb-1 flex flex-col gap-1">
+            {images.length > 0 && (
+              <div
+                className={`grid gap-1 ${
+                  images.length > 1 ? "grid-cols-2" : "grid-cols-1"
+                }`}
+              >
+                {images.map((att) => (
+                  <a
+                    key={att.path}
+                    href={att.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={att.name}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={att.url}
+                      alt={att.name}
+                      className="max-h-56 w-full rounded-lg object-cover"
+                    />
+                  </a>
+                ))}
+              </div>
+            )}
+            {files.map((att) => (
+              <a
+                key={att.path}
+                href={att.url}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white/70 px-2.5 py-2 transition-colors hover:bg-white"
+              >
+                <FileIcon />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium text-gray-800">
+                    {att.name}
+                  </div>
+                  <div className="text-[11px] text-gray-500">
+                    {formatBytes(att.size)}
+                  </div>
+                </div>
+                <DownloadIcon />
+              </a>
+            ))}
+          </div>
+        )}
+
+        {content && (
+          <p className="whitespace-pre-wrap break-words text-[15px] leading-snug text-gray-900">
+            {content}
+          </p>
+        )}
+
         <div className="mt-0.5 flex items-center justify-end gap-1 text-[11px] text-gray-500">
           <span>{formatTime(createdAt)}</span>
           {isOwn && <CheckIcon />}
         </div>
       </div>
     </div>
+  );
+}
+
+function FileIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-6 w-6 shrink-0 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <path d="M14 2v6h6" />
+    </svg>
+  );
+}
+
+function DownloadIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />
+    </svg>
   );
 }

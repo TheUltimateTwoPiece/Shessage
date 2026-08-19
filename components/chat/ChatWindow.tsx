@@ -7,7 +7,12 @@ import { Avatar } from "../Avatar";
 import { MessageList } from "./MessageList";
 import { MessageInput } from "./MessageInput";
 import { ScreenShareBar } from "./ScreenShareBar";
-import type { ConversationWithParticipants, Message, Profile } from "@/lib/types";
+import type {
+  Attachment,
+  ConversationWithParticipants,
+  Message,
+  Profile,
+} from "@/lib/types";
 
 export function ChatWindow({
   conversation,
@@ -43,7 +48,7 @@ export function ChatWindow({
   const otherOnline =
     !conversation.is_group && others[0] ? isOnline(others[0].id) : false;
 
-  async function sendMessage(text: string) {
+  async function sendMessage(text: string, attachments: Attachment[]) {
     setSendError(null);
     const supabase = createClient();
     const { data, error } = await supabase
@@ -52,6 +57,7 @@ export function ChatWindow({
         conversation_id: conversation.id,
         sender_id: currentUser.id,
         content: text,
+        attachments,
       })
       .select("*, sender:profiles(*)")
       .single();
@@ -110,7 +116,11 @@ export function ChatWindow({
         isGroup={conversation.is_group}
       />
 
-      <MessageInput onSend={sendMessage} />
+      <MessageInput
+        conversationId={conversation.id}
+        currentUserId={currentUser.id}
+        onSend={sendMessage}
+      />
     </div>
   );
 }

@@ -104,6 +104,7 @@ export function MessageList({
             isOwn={msg.sender_id === currentUserId}
             showSenderName={isGroup && msg.sender_id !== currentUserId}
             sender={sender}
+            attachments={msg.attachments ?? []}
           />
         );
       })}

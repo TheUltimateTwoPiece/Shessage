@@ -44,7 +44,10 @@ A WhatsApp-style, end-to-end messaging app with **real-time text chat** and
    - `conversations` — 1:1 or group chats
    - `conversation_participants` — membership, with the `is_participant()`
      helper used by the RLS policies
-   - `messages` — conversation messages
+   - `messages` — conversation messages, with an `attachments` column for
+     file uploads
+   - `message-attachments` — a **public** Supabase Storage bucket for message
+     files (uploads are restricted by RLS to conversation participants)
    - `screen_shares` — active LiveKit screen-share sessions
    - **Row Level Security** on every table so users can only read/write
      conversations they participate in

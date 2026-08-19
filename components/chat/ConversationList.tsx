@@ -166,7 +166,12 @@ function ConversationRow({
     : others[0]?.display_name ?? "Unknown";
   const avatarUrl = conversation.is_group ? null : others[0]?.avatar_url ?? null;
   const online = !conversation.is_group && others[0] ? isOnline(others[0].id) : false;
-  const preview = lastMessage ? lastMessage.content : "No messages yet";
+  const preview = lastMessage
+    ? lastMessage.content ||
+      (lastMessage.attachments?.length
+        ? `📎 ${lastMessage.attachments[0].name}`
+        : "No messages yet")
+    : "No messages yet";
 
   return (
     <button
